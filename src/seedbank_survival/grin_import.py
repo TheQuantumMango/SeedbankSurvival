@@ -102,13 +102,33 @@ def infer_original_vs_increase(rows: list[tuple[str, int | None, str | None]]) -
     return inferred
 
 
-def filter_to_genus(df_raw: pd.DataFrame, genus_prefix: str) -> pd.DataFrame:
-    """Keep only rows whose Taxon starts with genus_prefix.
+def list_genera(df_raw: pd.DataFrame) -> pd.DataFrame:
+    """Distinct first-word-of-Taxon values in a raw export, with row counts.
+
+    Meant for presenting a selection dropdown/checklist -- these exports
+    routinely mix in other genera, companion/cover species, and
+    administrative placeholders (e.g. "Undetermined nlgrp-backup"). There's
+    no reliable way to tell a genuine genus name from a bad one
+    automatically, so the person loading the file must pick which ones are
+    real, not have that inferred for them.
+    """
+    genus = df_raw["Taxon"].astype(str).str.split().str[0]
+    return genus.value_counts().rename_axis("Genus").reset_index(name="Count")
+
+
+def filter_to_genus(df_raw: pd.DataFrame, genera: str | list[str]) -> pd.DataFrame:
+    """Keep only rows whose Taxon starts with one of the given genus/genera.
 
     Must run before any other processing on a raw export -- these exports
-    routinely mix in other genera and companion/cover species.
+    routinely mix in other genera, companion/cover species, and
+    administrative placeholders. `genera` is deliberately required (no
+    default) -- see list_genera for presenting the real choices in a file
+    to whoever is loading it, rather than guessing.
     """
-    return df_raw[df_raw["Taxon"].astype(str).str.startswith(genus_prefix)].copy()
+    if isinstance(genera, str):
+        genera = [genera]
+    prefixes = tuple(genera)
+    return df_raw[df_raw["Taxon"].astype(str).str.startswith(prefixes)].copy()
 
 
 def drop_placeholder_rows(df: pd.DataFrame) -> pd.DataFrame:
@@ -143,14 +163,18 @@ class AdaptedGrinExport:
     df_borrowed: pd.DataFrame
 
 
-def _species_group(species: object, genus_prefix: str) -> str | None:
-    """Species value, except the unresolved-to-species placeholder becomes NaN.
+def _species_group(species: object) -> str | None:
+    """Species value, except an unresolved-to-species Taxon ("<Genus> spp.")
+    becomes NaN.
 
     Excludes it from ever forming its own species-tier deterioration model
     (mixing unrelated species into one curve would be meaningless) while
-    still letting it participate fully in Origin/Global fits.
+    still letting it participate fully in Origin/Global fits. Genus-agnostic
+    by design -- verified this "<Genus> spp." pattern holds identically
+    across every genus present in real exports (Astragalus, Onobrychis,
+    Oxytropis, Trifolium, ...), not just the one being actively filtered to.
     """
-    if species == f"{genus_prefix} spp.":
+    if isinstance(species, str) and species.endswith(" spp."):
         return None
     return species
 
@@ -192,10 +216,15 @@ def resolve_borrowed_row(
 
 
 def adapt_raw_export(
-    df_raw: pd.DataFrame, as_of_year: int, genus_prefix: str = "Astragalus"
+    df_raw: pd.DataFrame, as_of_year: int, genera: str | list[str]
 ) -> AdaptedGrinExport:
-    """Adapt a raw GRIN-Global Curator Tool export into the shape data_prep.py consumes."""
-    df = filter_to_genus(df_raw, genus_prefix)
+    """Adapt a raw GRIN-Global Curator Tool export into the shape data_prep.py consumes.
+
+    `genera` is required, not defaulted -- see list_genera/filter_to_genus.
+    Accepts one genus or several (e.g. current and synonymous former names),
+    since a curator's data may legitimately span more than one.
+    """
+    df = filter_to_genus(df_raw, genera)
     df = drop_placeholder_rows(df)
 
     parsed = df["Inventory Suffix"].apply(parse_inventory_suffix)
@@ -221,19 +250,15 @@ def adapt_raw_export(
             "EstTotalSeed": df["Quantity On Hand"].to_numpy(),
         }
     )
-    df_primary["SpeciesGroup"] = df_primary["Species"].apply(
-        lambda s: _species_group(s, genus_prefix)
-    )
+    df_primary["SpeciesGroup"] = df_primary["Species"].apply(_species_group)
     df_primary["EstLiveSeed"] = df_primary["EstTotalSeed"] * df_primary["Viability"] / 100
 
-    df_borrowed = _build_borrowed_rows(df, lot_years, genus_prefix)
+    df_borrowed = _build_borrowed_rows(df, lot_years)
 
     return AdaptedGrinExport(df_primary=df_primary, df_borrowed=df_borrowed)
 
 
-def _build_borrowed_rows(
-    df: pd.DataFrame, lot_years: pd.Series, genus_prefix: str
-) -> pd.DataFrame:
+def _build_borrowed_rows(df: pd.DataFrame, lot_years: pd.Series) -> pd.DataFrame:
     """Salvage (AgeAtTest, Viability) points for rows with real test data but no
     own resolvable year, via a same-Accession sibling's year (resolve_borrowed_row).
 
@@ -278,7 +303,7 @@ def _build_borrowed_rows(
                 "AgeAtTest": tested_year - borrowed_year,
                 "Viability": viable,
                 "Species": species,
-                "SpeciesGroup": _species_group(species, genus_prefix),
+                "SpeciesGroup": _species_group(species),
                 "Origin": df.at[idx, "Origin"],
             }
         )

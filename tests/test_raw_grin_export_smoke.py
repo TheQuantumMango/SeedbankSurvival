@@ -24,7 +24,7 @@ RAW_EXPORT_PATH = DOCS_DIR / "RawGRINAstragalusExport.xlsx"
 )
 def test_pipeline_runs_end_to_end_on_raw_export():
     df_raw = sb.load_accessions(RAW_EXPORT_PATH)
-    adapted = adapt_raw_export(df_raw, as_of_year=2026, genus_prefix="Astragalus")
+    adapted = adapt_raw_export(df_raw, as_of_year=2026, genera="Astragalus")
 
     assert len(adapted.df_primary) > 0
     assert adapted.df_primary["Species"].astype(str).str.startswith("Astragalus").all()

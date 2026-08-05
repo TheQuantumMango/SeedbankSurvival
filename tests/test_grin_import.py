@@ -8,6 +8,7 @@ from seedbank_survival.grin_import import (
     drop_placeholder_rows,
     filter_to_genus,
     infer_original_vs_increase,
+    list_genera,
     parse_inventory_suffix,
     resolve_borrowed_row,
 )
@@ -101,6 +102,31 @@ def test_filter_to_genus_keeps_only_matching_taxon():
     assert result["Accession"].tolist() == ["A1", "A3"]
 
 
+def test_filter_to_genus_accepts_multiple_genera():
+    # e.g. a genus plus a synonymous former name present in the same export.
+    df = pd.DataFrame({
+        "Taxon": ["Astragalus cicer", "Homalobus cicer", "Elymus elymoides", "Poa secunda"],
+        "Accession": ["A1", "A2", "A3", "A4"],
+    })
+    result = filter_to_genus(df, ["Astragalus", "Homalobus"])
+    assert result["Accession"].tolist() == ["A1", "A2"]
+
+
+def test_list_genera_counts_first_word_of_taxon():
+    df = pd.DataFrame({
+        "Taxon": [
+            "Astragalus cicer",
+            "Astragalus spp.",
+            "Elymus elymoides",
+            "Undetermined nlgrp-backup",
+        ],
+    })
+    result = list_genera(df).set_index("Genus")["Count"]
+    assert result["Astragalus"] == 2
+    assert result["Elymus"] == 1
+    assert result["Undetermined"] == 1
+
+
 def test_drop_placeholder_rows_removes_double_star_type():
     df = pd.DataFrame({
         "Inventory Type": ["SD", "**", "SD", "**"],
@@ -112,7 +138,7 @@ def test_drop_placeholder_rows_removes_double_star_type():
 
 def test_adapt_raw_export_computes_seed_age_and_age_at_test():
     df_raw = pd.DataFrame([_raw_export_row()])
-    result = adapt_raw_export(df_raw, as_of_year=2026)
+    result = adapt_raw_export(df_raw, as_of_year=2026, genera="Astragalus")
     row = result.df_primary.iloc[0]
     assert row["SeedAge"] == 2026 - 1937
     assert row["AgeAtTest"] == 2003 - 1937
@@ -130,13 +156,33 @@ def test_adapt_raw_export_filters_genus_and_placeholders_first():
             _raw_export_row(Accession="PI 3", **{"Inventory Type": "**"}),
         ]
     )
-    result = adapt_raw_export(df_raw, as_of_year=2026)
+    result = adapt_raw_export(df_raw, as_of_year=2026, genera="Astragalus")
     assert result.df_primary["Accession"].tolist() == ["PI 1"]
+
+
+def test_adapt_raw_export_accepts_multiple_genera():
+    df_raw = pd.DataFrame(
+        [
+            _raw_export_row(Accession="PI 1", Taxon="Astragalus cicer"),
+            _raw_export_row(Accession="PI 2", Taxon="Onobrychis viciifolia"),
+            _raw_export_row(Accession="PI 3", Taxon="Elymus elymoides"),
+        ]
+    )
+    result = adapt_raw_export(df_raw, as_of_year=2026, genera=["Astragalus", "Onobrychis"])
+    assert result.df_primary["Accession"].tolist() == ["PI 1", "PI 2"]
+
+
+def test_adapt_raw_export_species_group_exclusion_is_genus_agnostic():
+    df_raw = pd.DataFrame([_raw_export_row(Taxon="Onobrychis spp.")])
+    result = adapt_raw_export(df_raw, as_of_year=2026, genera="Onobrychis")
+    row = result.df_primary.iloc[0]
+    assert row["Species"] == "Onobrychis spp."
+    assert pd.isna(row["SpeciesGroup"])
 
 
 def test_adapt_raw_export_excludes_unresolved_species_from_species_group():
     df_raw = pd.DataFrame([_raw_export_row(Taxon="Astragalus spp.")])
-    result = adapt_raw_export(df_raw, as_of_year=2026)
+    result = adapt_raw_export(df_raw, as_of_year=2026, genera="Astragalus")
     row = result.df_primary.iloc[0]
     assert row["Species"] == "Astragalus spp."
     assert pd.isna(row["SpeciesGroup"])
@@ -144,7 +190,7 @@ def test_adapt_raw_export_excludes_unresolved_species_from_species_group():
 
 def test_adapt_raw_export_leaves_seed_age_nan_for_unparseable_suffix():
     df_raw = pd.DataFrame([_raw_export_row(**{"Inventory Suffix": "BG"})])
-    result = adapt_raw_export(df_raw, as_of_year=2026)
+    result = adapt_raw_export(df_raw, as_of_year=2026, genera="Astragalus")
     row = result.df_primary.iloc[0]
     assert pd.isna(row["SeedAge"])
     assert pd.isna(row["AgeAtTest"])
@@ -192,7 +238,7 @@ def test_adapt_raw_export_borrows_age_from_sibling_for_unparseable_suffix():
     )
     df_raw = pd.DataFrame([sibling_row, unparseable_row])
 
-    result = adapt_raw_export(df_raw, as_of_year=2026)
+    result = adapt_raw_export(df_raw, as_of_year=2026, genera="Astragalus")
     assert len(result.df_borrowed) == 1
     borrowed = result.df_borrowed.iloc[0]
     assert borrowed["Accession"] == "PI 1"
@@ -215,7 +261,7 @@ def test_adapt_raw_export_skips_borrowing_with_no_resolvable_sibling():
             ),
         ]
     )
-    result = adapt_raw_export(df_raw, as_of_year=2026)
+    result = adapt_raw_export(df_raw, as_of_year=2026, genera="Astragalus")
     assert len(result.df_borrowed) == 0
 
 
@@ -229,5 +275,5 @@ def test_adapt_raw_export_does_not_double_count_inherited_test_result():
             _raw_export_row(Accession="PI 1", **{"Inventory Suffix": "BG", **shared_test}),
         ]
     )
-    result = adapt_raw_export(df_raw, as_of_year=2026)
+    result = adapt_raw_export(df_raw, as_of_year=2026, genera="Astragalus")
     assert len(result.df_borrowed) == 0
