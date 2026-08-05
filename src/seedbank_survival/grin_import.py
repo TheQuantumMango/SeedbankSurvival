@@ -24,6 +24,7 @@ from dataclasses import dataclass
 import pandas as pd
 
 from . import data_prep
+from .grin_accessions import build_received_year_lookup
 
 _SUFFIX_WITH_LETTER_RE = re.compile(r"^(\d{2}|\d{4})[A-Za-z]*?([oiOI])\d*$")
 _SUFFIX_BARE_YEAR_RE = re.compile(r"^(\d{2}|\d{4})$")
@@ -216,13 +217,27 @@ def resolve_borrowed_row(
 
 
 def adapt_raw_export(
-    df_raw: pd.DataFrame, as_of_year: int, genera: str | list[str]
+    df_raw: pd.DataFrame,
+    as_of_year: int,
+    genera: str | list[str],
+    df_accessions: pd.DataFrame | None = None,
 ) -> AdaptedGrinExport:
     """Adapt a raw GRIN-Global Curator Tool export into the shape data_prep.py consumes.
 
     `genera` is required, not defaulted -- see list_genera/filter_to_genus.
     Accepts one genus or several (e.g. current and synonymous former names),
     since a curator's data may legitimately span more than one.
+
+    `df_accessions` is an optional raw accession-level export (one row per
+    Accession -- see grin_accessions.py). When given, its Received Date backs
+    a SECOND, independent fallback chain used only for SeedAge (current age,
+    every row): own suffix -> Received Date. This is deliberately separate
+    from AgeAtTest's chain (own suffix -> sibling-year, in
+    _build_borrowed_rows): a Received Date is accession-level and has no
+    test event to anchor a plausibility check against, so it isn't a
+    substitute for sibling-year resolution -- only for "how old is this lot
+    today," which has no such anchor to begin with. A row resolved this way
+    lands in df_primary (ranking-eligible), not df_borrowed.
     """
     df = filter_to_genus(df_raw, genera)
     df = drop_placeholder_rows(df)
@@ -236,10 +251,16 @@ def adapt_raw_export(
 
     viability_year = pd.to_datetime(df["Tested Date"], errors="coerce").dt.year.astype("float64")
 
+    seed_age_years = lot_years
+    if df_accessions is not None:
+        received_year_lookup = build_received_year_lookup(df_accessions)
+        received_fallback = df["Accession"].map(received_year_lookup).astype("float64")
+        seed_age_years = lot_years.where(lot_years.notna(), received_fallback)
+
     df_primary = pd.DataFrame(
         {
             "Accession": df["Accession"].to_numpy(),
-            "SeedAge": (as_of_year - lot_years).to_numpy(),
+            "SeedAge": (as_of_year - seed_age_years).to_numpy(),
             "AgeAtTest": (viability_year - lot_years).to_numpy(),
             "Viability": df["Percent Viable"].to_numpy(),
             "ViabilityYear": viability_year.to_numpy(),

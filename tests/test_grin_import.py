@@ -30,6 +30,17 @@ def _raw_export_row(**overrides):
     return row
 
 
+def _accession_row(**overrides):
+    row = {
+        "Accession": "PI 100000",
+        "Taxon": "Astragalus cicer",
+        "Received Date Format": "mm/dd/yyyy",
+        "Received Date": pd.Timestamp("1990-02-05"),
+    }
+    row.update(overrides)
+    return row
+
+
 def test_parse_two_digit_year_with_letter():
     assert parse_inventory_suffix("37o") == (1937, "o")
     assert parse_inventory_suffix("76i") == (1976, "i")
@@ -277,3 +288,58 @@ def test_adapt_raw_export_does_not_double_count_inherited_test_result():
     )
     result = adapt_raw_export(df_raw, as_of_year=2026, genera="Astragalus")
     assert len(result.df_borrowed) == 0
+
+
+def test_adapt_raw_export_received_date_resolves_seed_age_into_primary():
+    df_raw = pd.DataFrame([_raw_export_row(Accession="PI 1", **{"Inventory Suffix": "BG"})])
+    df_accessions = pd.DataFrame([_accession_row(Accession="PI 1")])
+
+    result = adapt_raw_export(df_raw, as_of_year=2026, genera="Astragalus", df_accessions=df_accessions)
+
+    row = result.df_primary.iloc[0]
+    assert row["SeedAge"] == 2026 - 1990
+    # Lands in df_primary, i.e. ranking-eligible -- not merely salvaged for model fitting.
+    assert len(result.df_borrowed) == 0
+
+
+def test_adapt_raw_export_without_accessions_arg_is_unchanged():
+    df_raw = pd.DataFrame([_raw_export_row(Accession="PI 1", **{"Inventory Suffix": "BG"})])
+
+    result = adapt_raw_export(df_raw, as_of_year=2026, genera="Astragalus")
+
+    assert pd.isna(result.df_primary.iloc[0]["SeedAge"])
+
+
+def test_adapt_raw_export_own_suffix_wins_over_received_date():
+    df_raw = pd.DataFrame([_raw_export_row(Accession="PI 1", **{"Inventory Suffix": "37o"})])
+    df_accessions = pd.DataFrame([_accession_row(Accession="PI 1", **{"Received Date": pd.Timestamp("1950-01-01")})])
+
+    result = adapt_raw_export(df_raw, as_of_year=2026, genera="Astragalus", df_accessions=df_accessions)
+
+    row = result.df_primary.iloc[0]
+    assert row["SeedAge"] == 2026 - 1937  # from "37o", not the 1950 Received Date
+
+
+def test_received_date_fallback_does_not_affect_age_at_test_or_borrowed_chain():
+    # AgeAtTest / df_borrowed use their own chain (own suffix -> sibling); the
+    # Received Date fallback is SeedAge-only and must not change either.
+    unparseable_with_test = _raw_export_row(
+        Accession="PI 1",
+        **{
+            "Inventory Suffix": "BG",
+            "Percent Viable": 60.0,
+            "Tested Date": pd.Timestamp("1995-06-01"),
+        },
+    )
+    df_raw = pd.DataFrame([unparseable_with_test])
+    df_accessions = pd.DataFrame([_accession_row(Accession="PI 1")])
+
+    without = adapt_raw_export(df_raw, as_of_year=2026, genera="Astragalus")
+    with_acc = adapt_raw_export(df_raw, as_of_year=2026, genera="Astragalus", df_accessions=df_accessions)
+
+    assert len(without.df_borrowed) == len(with_acc.df_borrowed) == 0
+    assert pd.isna(without.df_primary.iloc[0]["AgeAtTest"])
+    assert pd.isna(with_acc.df_primary.iloc[0]["AgeAtTest"])
+    # SeedAge does differ -- that's the whole point of the fallback.
+    assert pd.isna(without.df_primary.iloc[0]["SeedAge"])
+    assert with_acc.df_primary.iloc[0]["SeedAge"] == 2026 - 1990
