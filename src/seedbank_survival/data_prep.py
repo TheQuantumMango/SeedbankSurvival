@@ -67,12 +67,28 @@ def build_model_dataset(df: pd.DataFrame) -> pd.DataFrame:
 def build_ranking_dataset(
     df: pd.DataFrame, valid_statuses: tuple[str, ...] = DEFAULT_VALID_STATUSES
 ) -> pd.DataFrame:
-    """One row per Accession (lowest SeedAge) among rows with an in-inventory Status."""
+    """One representative row per Accession among rows with an in-inventory Status.
+
+    Prefers the youngest (lowest SeedAge) lot, UNLESS it's depleted (no seed
+    on hand, or tested at exactly 0% viable) -- in that case the youngest
+    non-depleted lot is used instead, since the most recent lot isn't always
+    the right one to represent an accession's current state (e.g. it was
+    harvested immature, or has no seed left). Falls back to the plain
+    youngest lot if every candidate is depleted, so an accession that's out
+    of usable seed everywhere still gets surfaced rather than silently
+    dropped -- that's exactly the kind of thing this tool should flag.
+    """
     df_exists = df[df["Status"].isin(valid_statuses)].copy()
     # Dead in practice: SeedAge-null rows are already dropped by clean_ages()
     # before this function runs. Kept for parity with the original notebook.
     df_exists["SeedAge"] = df_exists["SeedAge"].fillna(200)
-    df_ranking = df_exists.loc[
-        df_exists.groupby("Accession")["SeedAge"].idxmin()
-    ].reset_index(drop=True)
+
+    depleted = (df_exists["EstTotalSeed"].isna() | (df_exists["EstTotalSeed"] == 0)) | (
+        df_exists["Viability"].notna() & (df_exists["Viability"] == 0)
+    )
+    df_exists["_depleted"] = depleted
+
+    df_sorted = df_exists.sort_values(["Accession", "_depleted", "SeedAge"])
+    df_ranking = df_sorted.groupby("Accession").head(1)
+    df_ranking = df_ranking.drop(columns="_depleted").reset_index(drop=True)
     return df_ranking

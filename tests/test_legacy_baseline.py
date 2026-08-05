@@ -44,6 +44,12 @@ regression coefficients by hand:
   ACC-N1 (Status "Hold inventory sample for further clarification"): an
     administrative-hold status, judged to mean seed is still on hand ->
     included.
+
+  Depleted-lot ranking fallback (data_prep.build_ranking_dataset):
+  ACC-P has two rows -- SeedAge 5 with EstTotalSeed 0 (depleted), and
+  SeedAge 15 with EstTotalSeed 500 (has seed). The oracle (dumb
+  youngest-wins) picks the depleted SeedAge-5 row; the fixed pipeline
+  skips it and picks the non-depleted SeedAge-15 row instead.
 """
 from __future__ import annotations
 
@@ -148,6 +154,7 @@ def test_model_tier_selection(synthetic_accessions_df):
         "ACC-A1", "ACC-A2", "ACC-A3", "ACC-A4", "ACC-I1", "ACC-J1",
         "ACC-E1", "ACC-E2", "ACC-E3",
         "ACC-F1", "ACC-G1", "ACC-N1",  # newly included by the whitelist fix
+        "ACC-P",  # depleted-lot fallback case, still Species alpha either way
     ]
     expected_origin_tier = ["ACC-B1", "ACC-C1", "ACC-C2"]
     expected_global_tier = ["ACC-K"]
@@ -175,3 +182,17 @@ def test_extreme_seed_age_reason_text(synthetic_accessions_df):
     modular = run_modular_pipeline(synthetic_accessions_df)
     table = modular["priority_table"].set_index("Accession")
     assert "Extreme seed age" in table.loc["ACC-J1", "PrimaryReason"]
+
+
+def test_depleted_lot_fallback_diverges_from_oracle(synthetic_accessions_df):
+    """The oracle (dumb youngest-wins) picks ACC-P's depleted SeedAge-5 lot;
+    the fixed build_ranking_dataset skips it for the non-depleted SeedAge-15
+    lot instead -- a deliberate change, not a bug."""
+    oracle = run_legacy_pipeline(synthetic_accessions_df)
+    modular = run_modular_pipeline(synthetic_accessions_df)
+
+    oracle_row = oracle["df_ranking"].set_index("Accession").loc["ACC-P"]
+    modular_row = modular["df_ranking"].set_index("Accession").loc["ACC-P"]
+
+    assert oracle_row["SeedAge"] == 5
+    assert modular_row["SeedAge"] == 15
