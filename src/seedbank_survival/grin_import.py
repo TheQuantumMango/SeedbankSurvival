@@ -330,9 +330,18 @@ def _build_borrowed_rows(df: pd.DataFrame, lot_years: pd.Series) -> pd.DataFrame
         )
         represented_events.add(event)
 
-    return pd.DataFrame(
+    df_borrowed = pd.DataFrame(
         records, columns=["Accession", "AgeAtTest", "Viability", "Species", "SpeciesGroup", "Origin"]
     )
+    # An empty `records` list leaves AgeAtTest/Viability as object dtype (pandas
+    # can't infer numeric from nothing) -- harmless alone, but pd.concat in
+    # assemble_model_dataset upcasts the WHOLE combined column to object if
+    # either side is object-dtyped, silently breaking downstream OLS fits.
+    # Only bites when df_borrowed is empty, which real data never hits (there's
+    # always something to salvage) but small synthetic fixtures/tests do.
+    df_borrowed["AgeAtTest"] = df_borrowed["AgeAtTest"].astype("float64")
+    df_borrowed["Viability"] = df_borrowed["Viability"].astype("float64")
+    return df_borrowed
 
 
 def assemble_model_dataset(df_primary_clean: pd.DataFrame, df_borrowed: pd.DataFrame) -> pd.DataFrame:

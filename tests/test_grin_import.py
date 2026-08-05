@@ -4,6 +4,7 @@ import pandas as pd
 
 from seedbank_survival.grin_import import (
     adapt_raw_export,
+    assemble_model_dataset,
     build_sibling_year_index,
     drop_placeholder_rows,
     filter_to_genus,
@@ -12,6 +13,7 @@ from seedbank_survival.grin_import import (
     parse_inventory_suffix,
     resolve_borrowed_row,
 )
+from seedbank_survival.data_prep import clean_ages
 
 
 def _raw_export_row(**overrides):
@@ -343,3 +345,32 @@ def test_received_date_fallback_does_not_affect_age_at_test_or_borrowed_chain():
     # SeedAge does differ -- that's the whole point of the fallback.
     assert pd.isna(without.df_primary.iloc[0]["SeedAge"])
     assert with_acc.df_primary.iloc[0]["SeedAge"] == 2026 - 1990
+
+
+def test_empty_df_borrowed_does_not_break_assemble_model_dataset_dtypes():
+    # Regression test: an empty df_borrowed (no unparseable-suffix rows at
+    # all -- realistic for a small dataset) used to leave AgeAtTest/Viability
+    # as object dtype (pandas can't infer numeric from an empty list), which
+    # silently upcast the WHOLE combined column to object on concat and broke
+    # statsmodels' OLS fit downstream. Never showed up against real data
+    # (df_borrowed is never empty there), but a small synthetic set hits it.
+    df_raw = pd.DataFrame(
+        [
+            _raw_export_row(Accession="PI 1", **{"Inventory Suffix": "90o", "Percent Viable": 90.0}),
+            _raw_export_row(Accession="PI 2", **{"Inventory Suffix": "95o", "Percent Viable": 70.0}),
+            _raw_export_row(Accession="PI 3", **{"Inventory Suffix": "99o", "Percent Viable": 50.0}),
+        ]
+    )
+    result = adapt_raw_export(df_raw, as_of_year=2026, genera="Astragalus")
+    assert len(result.df_borrowed) == 0
+    assert result.df_borrowed["AgeAtTest"].dtype == "float64"
+    assert result.df_borrowed["Viability"].dtype == "float64"
+
+    df_model = assemble_model_dataset(clean_ages(result.df_primary), result.df_borrowed)
+    assert df_model["AgeAtTest"].dtype == "float64"
+    assert df_model["Viability"].dtype == "float64"
+    # This is the actual failure mode: fitting used to raise on object dtype.
+    from seedbank_survival.deterioration import fit_global_model
+
+    model = fit_global_model(df_model)
+    assert model.n == 3
