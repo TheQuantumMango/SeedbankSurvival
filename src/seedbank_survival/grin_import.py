@@ -23,6 +23,8 @@ from dataclasses import dataclass
 
 import pandas as pd
 
+from . import data_prep
+
 _SUFFIX_WITH_LETTER_RE = re.compile(r"^(\d{2}|\d{4})[A-Za-z]*?([oiOI])\d*$")
 _SUFFIX_BARE_YEAR_RE = re.compile(r"^(\d{2}|\d{4})$")
 
@@ -153,6 +155,42 @@ def _species_group(species: object, genus_prefix: str) -> str | None:
     return species
 
 
+def build_sibling_year_index(
+    accessions: list, lot_years: list
+) -> dict[object, list[int]]:
+    """Accession -> sorted list of resolved lot years among its rows.
+
+    Used to find a plausible age for a lot whose own Inventory Suffix
+    didn't resolve to a year, by borrowing a same-Accession sibling's year.
+    """
+    index: dict[object, list[int]] = {}
+    for accession, year in zip(accessions, lot_years):
+        if year is None or (isinstance(year, float) and pd.isna(year)):
+            continue
+        index.setdefault(accession, []).append(int(year))
+    for years in index.values():
+        years.sort()
+    return index
+
+
+def resolve_borrowed_row(
+    accession: object, tested_year: int, sibling_index: dict[object, list[int]]
+) -> int | None:
+    """Nearest sibling lot year that isn't after tested_year, or None if none qualify.
+
+    A lot can't have been the physical seed tested in a year before it existed --
+    only sibling years at or before the test's year are eligible; among those,
+    the most recent one is the best guess for "the seed most likely tested."
+    """
+    years = sibling_index.get(accession)
+    if not years:
+        return None
+    candidates = [year for year in years if year <= tested_year]
+    if not candidates:
+        return None
+    return max(candidates)
+
+
 def adapt_raw_export(
     df_raw: pd.DataFrame, as_of_year: int, genus_prefix: str = "Astragalus"
 ) -> AdaptedGrinExport:
@@ -188,8 +226,80 @@ def adapt_raw_export(
     )
     df_primary["EstLiveSeed"] = df_primary["EstTotalSeed"] * df_primary["Viability"] / 100
 
-    df_borrowed = pd.DataFrame(
-        columns=["Accession", "AgeAtTest", "Viability", "Species", "SpeciesGroup", "Origin"]
-    )
+    df_borrowed = _build_borrowed_rows(df, lot_years, genus_prefix)
 
     return AdaptedGrinExport(df_primary=df_primary, df_borrowed=df_borrowed)
+
+
+def _build_borrowed_rows(
+    df: pd.DataFrame, lot_years: pd.Series, genus_prefix: str
+) -> pd.DataFrame:
+    """Salvage (AgeAtTest, Viability) points for rows with real test data but no
+    own resolvable year, via a same-Accession sibling's year (resolve_borrowed_row).
+
+    "Unrepeated" guard: a test event already represented -- either by a row
+    with its own resolvable year, or by an earlier borrowed row -- for the same
+    (Accession, Viability, Tested Date) is never added twice. Duplicate
+    (Accession, Viability, Tested Date) rows typically mean the result was
+    inherited/copied onto a backup lot's record rather than independently
+    measured.
+    """
+    sibling_index = build_sibling_year_index(df["Accession"], lot_years)
+
+    has_test_data = df["Percent Viable"].notna() & df["Tested Date"].notna()
+    needs_borrowing = lot_years.isna() & has_test_data
+
+    represented_events = {
+        (accession, viable, tested)
+        for accession, year, viable, tested in zip(
+            df["Accession"], lot_years, df["Percent Viable"], df["Tested Date"]
+        )
+        if not pd.isna(year)
+    }
+
+    records = []
+    for idx in df.index[needs_borrowing]:
+        accession = df.at[idx, "Accession"]
+        viable = df.at[idx, "Percent Viable"]
+        tested = df.at[idx, "Tested Date"]
+        event = (accession, viable, tested)
+        if event in represented_events:
+            continue
+
+        tested_year = pd.Timestamp(tested).year
+        borrowed_year = resolve_borrowed_row(accession, tested_year, sibling_index)
+        if borrowed_year is None:
+            continue
+
+        species = df.at[idx, "Taxon"]
+        records.append(
+            {
+                "Accession": accession,
+                "AgeAtTest": tested_year - borrowed_year,
+                "Viability": viable,
+                "Species": species,
+                "SpeciesGroup": _species_group(species, genus_prefix),
+                "Origin": df.at[idx, "Origin"],
+            }
+        )
+        represented_events.add(event)
+
+    return pd.DataFrame(
+        records, columns=["Accession", "AgeAtTest", "Viability", "Species", "SpeciesGroup", "Origin"]
+    )
+
+
+def assemble_model_dataset(df_primary_clean: pd.DataFrame, df_borrowed: pd.DataFrame) -> pd.DataFrame:
+    """Union the two model-fitting sources of an AdaptedGrinExport.
+
+    df_primary_clean is data_prep.clean_ages(adapted.df_primary); df_borrowed is
+    adapted.df_borrowed as-is (it has no SeedAge column and never needs
+    clean_ages -- build_model_dataset only reads AgeAtTest/Viability).
+    """
+    return pd.concat(
+        [
+            data_prep.build_model_dataset(df_primary_clean),
+            data_prep.build_model_dataset(df_borrowed),
+        ],
+        ignore_index=True,
+    )

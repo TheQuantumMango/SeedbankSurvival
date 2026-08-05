@@ -4,10 +4,12 @@ import pandas as pd
 
 from seedbank_survival.grin_import import (
     adapt_raw_export,
+    build_sibling_year_index,
     drop_placeholder_rows,
     filter_to_genus,
     infer_original_vs_increase,
     parse_inventory_suffix,
+    resolve_borrowed_row,
 )
 
 
@@ -146,3 +148,86 @@ def test_adapt_raw_export_leaves_seed_age_nan_for_unparseable_suffix():
     row = result.df_primary.iloc[0]
     assert pd.isna(row["SeedAge"])
     assert pd.isna(row["AgeAtTest"])
+
+
+def test_build_sibling_year_index_groups_by_accession_and_sorts():
+    index = build_sibling_year_index(
+        accessions=["PI 1", "PI 1", "PI 2", "PI 1"],
+        lot_years=[1995, 1980, 2001, None],
+    )
+    assert index == {"PI 1": [1980, 1995], "PI 2": [2001]}
+
+
+def test_resolve_borrowed_row_picks_nearest_year_not_after_tested_year():
+    index = {"PI 1": [1980, 1995, 2010]}
+    # Tested in 2000 -- 2010 didn't exist yet, 1995 is the nearest eligible sibling.
+    assert resolve_borrowed_row("PI 1", tested_year=2000, sibling_index=index) == 1995
+
+
+def test_resolve_borrowed_row_none_when_no_sibling_predates_test():
+    index = {"PI 1": [2010]}
+    assert resolve_borrowed_row("PI 1", tested_year=2000, sibling_index=index) is None
+
+
+def test_resolve_borrowed_row_none_for_unknown_accession():
+    assert resolve_borrowed_row("PI 999", tested_year=2000, sibling_index={}) is None
+
+
+def test_adapt_raw_export_borrows_age_from_sibling_for_unparseable_suffix():
+    sibling_row = _raw_export_row(
+        Accession="PI 1",
+        **{
+            "Inventory Suffix": "37o",
+            "Percent Viable": None,
+            "Tested Date": pd.NaT,
+        },
+    )
+    unparseable_row = _raw_export_row(
+        Accession="PI 1",
+        **{
+            "Inventory Suffix": "BG",
+            "Percent Viable": 60.0,
+            "Tested Date": pd.Timestamp("1995-06-01"),
+        },
+    )
+    df_raw = pd.DataFrame([sibling_row, unparseable_row])
+
+    result = adapt_raw_export(df_raw, as_of_year=2026)
+    assert len(result.df_borrowed) == 1
+    borrowed = result.df_borrowed.iloc[0]
+    assert borrowed["Accession"] == "PI 1"
+    assert borrowed["AgeAtTest"] == 1995 - 1937
+    assert borrowed["Viability"] == 60.0
+    # never gets a SeedAge -- can't reach ranking, only model fitting.
+    assert "SeedAge" not in result.df_borrowed.columns
+
+
+def test_adapt_raw_export_skips_borrowing_with_no_resolvable_sibling():
+    df_raw = pd.DataFrame(
+        [
+            _raw_export_row(
+                Accession="PI 2",
+                **{
+                    "Inventory Suffix": "BG",
+                    "Percent Viable": 60.0,
+                    "Tested Date": pd.Timestamp("1995-06-01"),
+                },
+            ),
+        ]
+    )
+    result = adapt_raw_export(df_raw, as_of_year=2026)
+    assert len(result.df_borrowed) == 0
+
+
+def test_adapt_raw_export_does_not_double_count_inherited_test_result():
+    # Same (Accession, Viability, Tested Date) on both an own-resolvable row and
+    # an unparseable one -- the unparseable one's "test" is already represented.
+    shared_test = {"Percent Viable": 60.0, "Tested Date": pd.Timestamp("1995-06-01")}
+    df_raw = pd.DataFrame(
+        [
+            _raw_export_row(Accession="PI 1", **{"Inventory Suffix": "37o", **shared_test}),
+            _raw_export_row(Accession="PI 1", **{"Inventory Suffix": "BG", **shared_test}),
+        ]
+    )
+    result = adapt_raw_export(df_raw, as_of_year=2026)
+    assert len(result.df_borrowed) == 0
