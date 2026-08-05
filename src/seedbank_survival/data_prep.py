@@ -67,18 +67,26 @@ def build_model_dataset(df: pd.DataFrame) -> pd.DataFrame:
 def build_ranking_dataset(
     df: pd.DataFrame, valid_statuses: tuple[str, ...] = DEFAULT_VALID_STATUSES
 ) -> pd.DataFrame:
-    """One representative row per Accession among rows with an in-inventory Status.
+    """One representative row per Accession among rows worth tracking.
 
-    Prefers the youngest (lowest SeedAge) lot, UNLESS it's depleted (no seed
-    on hand, or tested at exactly 0% viable) -- in that case the youngest
-    non-depleted lot is used instead, since the most recent lot isn't always
-    the right one to represent an accession's current state (e.g. it was
-    harvested immature, or has no seed left). Falls back to the plain
-    youngest lot if every candidate is depleted, so an accession that's out
-    of usable seed everywhere still gets surfaced rather than silently
-    dropped -- that's exactly the kind of thing this tool should flag.
+    A row is worth tracking if its Status is whitelisted OR it has real seed
+    on hand (EstTotalSeed > 0) -- an accession with physical seed is never
+    dropped just because its Status text isn't one this tool recognizes;
+    Status text can be stale or inconsistent in ways a nonzero quantity
+    value isn't.
+
+    Among an Accession's tracked rows, prefers the youngest (lowest SeedAge)
+    lot, UNLESS it's depleted (no seed on hand, or tested at exactly 0%
+    viable) -- in that case the youngest non-depleted lot is used instead,
+    since the most recent lot isn't always the right one to represent an
+    accession's current state (e.g. it was harvested immature, or has no
+    seed left). Falls back to the plain youngest lot if every candidate is
+    depleted, so an accession that's out of usable seed everywhere still
+    gets surfaced rather than silently dropped -- that's exactly the kind
+    of thing this tool should flag.
     """
-    df_exists = df[df["Status"].isin(valid_statuses)].copy()
+    worth_tracking = df["Status"].isin(valid_statuses) | (df["EstTotalSeed"] > 0)
+    df_exists = df[worth_tracking].copy()
     # Dead in practice: SeedAge-null rows are already dropped by clean_ages()
     # before this function runs. Kept for parity with the original notebook.
     df_exists["SeedAge"] = df_exists["SeedAge"].fillna(200)

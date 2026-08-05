@@ -50,6 +50,15 @@ regression coefficients by hand:
   SeedAge 15 with EstTotalSeed 500 (has seed). The oracle (dumb
   youngest-wins) picks the depleted SeedAge-5 row; the fixed pipeline
   skips it and picks the non-depleted SeedAge-15 row instead.
+  ACC-L1/ACC-M1 have EstTotalSeed 0 -- realistic for "Exhausted supply"/
+  "Lot used for regeneration" -- so they stay excluded for two
+  independent reasons (bad Status AND no seed), not just one.
+
+  Real-seed-OR-whitelisted-status broadening (data_prep.build_ranking_dataset):
+  ACC-Q (Status "Unknown status", not whitelisted, EstTotalSeed 500):
+  excluded by Status alone, but included because it has real seed on
+  hand -- proves the OR-gate, not just the Status whitelist, drives
+  inclusion now.
 """
 from __future__ import annotations
 
@@ -155,6 +164,7 @@ def test_model_tier_selection(synthetic_accessions_df):
         "ACC-E1", "ACC-E2", "ACC-E3",
         "ACC-F1", "ACC-G1", "ACC-N1",  # newly included by the whitelist fix
         "ACC-P",  # depleted-lot fallback case, still Species alpha either way
+        "ACC-Q",  # included via the real-seed-OR-whitelisted-status broadening
     ]
     # ACC-B1/ACC-C1/ACC-C2 would naively fall to the Origin CountryB model
     # (Species beta/gamma have too few rows each), but CountryB's R^2 (0.543,
@@ -200,3 +210,14 @@ def test_depleted_lot_fallback_diverges_from_oracle(synthetic_accessions_df):
 
     assert oracle_row["SeedAge"] == 5
     assert modular_row["SeedAge"] == 15
+
+
+def test_real_seed_includes_accession_despite_unwhitelisted_status(synthetic_accessions_df):
+    """ACC-Q has a Status the whitelist has never covered ("Unknown status") but
+    real seed on hand (EstTotalSeed 500) -- included via the OR-gate, absent
+    from the oracle (which only ever looks at Status)."""
+    oracle = run_legacy_pipeline(synthetic_accessions_df)
+    modular = run_modular_pipeline(synthetic_accessions_df)
+
+    assert "ACC-Q" not in set(oracle["df_ranking"]["Accession"])
+    assert "ACC-Q" in set(modular["df_ranking"]["Accession"])
