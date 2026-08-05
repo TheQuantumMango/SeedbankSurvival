@@ -100,3 +100,16 @@ def build_ranking_dataset(
     df_ranking = df_sorted.groupby("Accession").head(1)
     df_ranking = df_ranking.drop(columns="_depleted").reset_index(drop=True)
     return df_ranking
+
+
+def build_inventory_view(df: pd.DataFrame) -> pd.DataFrame:
+    """Every physical packet that still has seed, dead or alive.
+
+    Status-independent and not deduped by Accession -- unlike
+    build_ranking_dataset (one best-representative row per Accession, for
+    triaging which accessions need regenerating), this is one row per
+    surviving packet, for triaging which packets to test or discard. A
+    packet whose predicted/tested viability is ~0% still appears here; it's
+    exactly the kind of packet this view exists to surface.
+    """
+    return df[df["EstTotalSeed"] > 0].copy()
