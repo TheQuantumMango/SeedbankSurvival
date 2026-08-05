@@ -16,3 +16,6 @@ ACC-E2,10,10,55,Available,Astragalus epsilon,CountryE
 ACC-E3,15,15,60,Available,Astragalus epsilon,CountryE
 ACC-K,12,12,68,Available,Astragalus kappa,CountryK
 ACC-K,28,28,48,Available,Astragalus kappa,CountryK
+ACC-L1,35,35,45,Exhausted supply,Astragalus alpha,CountryA
+ACC-M1,40,40,42,Lot used for regeneration,Astragalus alpha,CountryA
+ACC-N1,33,33,48,Hold inventory sample for further clarification,Astragalus alpha,CountryA

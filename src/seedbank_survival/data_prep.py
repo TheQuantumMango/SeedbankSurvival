@@ -4,22 +4,42 @@ from pathlib import Path
 
 import pandas as pd
 
-# NOTE: "Low viability" never matches real GRIN-Global data, which uses
-# "Low germination" instead -- this whitelist has a real mismatch bug,
-# inherited verbatim from the original notebook (it also omits several
-# real status values, e.g. "Not available", "Not viable", "Exhausted
-# supply"). Preserved here on purpose; see tests/legacy_baseline for the
-# characterization test that locks in this exact behavior before it's
-# ever fixed deliberately.
+# Statuses observed across real GRIN-Global exports (Astragalus, Onobrychis)
+# believed to mean seed physically remains in inventory -- i.e. worth
+# including in the regeneration-priority ranking pool. Replaces the original
+# notebook's whitelist, which had "Low viability" (never matches real data;
+# the actual value is "Low germination") and omitted most other real statuses.
+# See tests/legacy_baseline for the characterization test proving the
+# original bug is preserved there and fixed here, deliberately.
 DEFAULT_VALID_STATUSES = (
     "Available",
     "Original lot received",
     "Low inventory",
-    "Low viability",
+    "Low germination",
     "Packaged",
     "Quantity low, but inventory onhand above iv.dcritical",
     "Replaced older sample with newer sample",
+    # Seed exists, tested at ~0% viability -- exactly the kind of accession
+    # this tool exists to flag, not exclude.
+    "Not viable",
+    # Administrative states where seed is presumed to still be on hand;
+    # low row counts in practice (1-3 rows per status across both real
+    # exports), worth revisiting if that turns out to be wrong.
+    "Hold inventory sample for further clarification",
+    "Curator attention required",
+    "Extra seed: was or will be distribution",
 )
+
+# Deliberately excluded -- no seed presumed to remain, or existence
+# unconfirmed:
+#   "Exhausted supply"                    -- supply is gone
+#   "Lot used for regeneration"           -- original lot consumed to grow a
+#   "Planted for regeneration"               new one; that new lot gets its
+#                                             own Accession/Status once grown
+#   "No harvest made"                     -- regeneration attempt consumed
+#                                             the lot and produced nothing
+#   "Not available", "Inventory does not exist" -- explicitly gone
+#   "Unknown status"                      -- existence unconfirmed
 
 
 def load_accessions(path: str | Path) -> pd.DataFrame:
