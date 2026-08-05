@@ -1,0 +1,29 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "seedbank-survival"
+version = "0.1.0"
+description = "Seedbank viability assessment tool using regression analysis on GRIN-Global accession data"
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.11"
+dependencies = [
+    "pandas>=2.2",
+    "numpy>=1.26",
+    "scipy",
+    "statsmodels>=0.14",
+    "matplotlib",
+    "seaborn",
+    "openpyxl",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/seedbank_survival"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
