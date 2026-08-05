@@ -1,6 +1,13 @@
 from __future__ import annotations
 
-from seedbank_survival.grin_import import infer_original_vs_increase, parse_inventory_suffix
+import pandas as pd
+
+from seedbank_survival.grin_import import (
+    drop_placeholder_rows,
+    filter_to_genus,
+    infer_original_vs_increase,
+    parse_inventory_suffix,
+)
 
 
 def test_parse_two_digit_year_with_letter():
@@ -64,3 +71,21 @@ def test_infer_original_vs_increase_respects_existing_letters():
 def test_infer_original_vs_increase_leaves_unknown_year_alone():
     rows = [("PI 3", None, None)]
     assert infer_original_vs_increase(rows) == [None]
+
+
+def test_filter_to_genus_keeps_only_matching_taxon():
+    df = pd.DataFrame({
+        "Taxon": ["Astragalus cicer", "Elymus elymoides", "Astragalus spp.", "Poa secunda"],
+        "Accession": ["A1", "A2", "A3", "A4"],
+    })
+    result = filter_to_genus(df, "Astragalus")
+    assert result["Accession"].tolist() == ["A1", "A3"]
+
+
+def test_drop_placeholder_rows_removes_double_star_type():
+    df = pd.DataFrame({
+        "Inventory Type": ["SD", "**", "SD", "**"],
+        "Accession": ["A1", "A2", "A3", "A4"],
+    })
+    result = drop_placeholder_rows(df)
+    assert result["Accession"].tolist() == ["A1", "A3"]

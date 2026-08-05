@@ -20,6 +20,8 @@ from __future__ import annotations
 
 import re
 
+import pandas as pd
+
 _SUFFIX_WITH_LETTER_RE = re.compile(r"^(\d{2}|\d{4})[A-Za-z]*?([oiOI])\d*$")
 _SUFFIX_BARE_YEAR_RE = re.compile(r"^(\d{2}|\d{4})$")
 
@@ -95,3 +97,22 @@ def infer_original_vs_increase(rows: list[tuple[str, int | None, str | None]]) -
         else:
             inferred.append(None)
     return inferred
+
+
+def filter_to_genus(df_raw: pd.DataFrame, genus_prefix: str) -> pd.DataFrame:
+    """Keep only rows whose Taxon starts with genus_prefix.
+
+    Must run before any other processing on a raw export -- these exports
+    routinely mix in other genera and companion/cover species.
+    """
+    return df_raw[df_raw["Taxon"].astype(str).str.startswith(genus_prefix)].copy()
+
+
+def drop_placeholder_rows(df: pd.DataFrame) -> pd.DataFrame:
+    """Drop administrative container rows (Inventory Type == "**").
+
+    These carry an Accession/Taxon but no Suffix, test data, or quantity --
+    verified they have nothing salvageable for either model-fitting or
+    ranking, so dropping them first is safe.
+    """
+    return df[df["Inventory Type"] != "**"].copy()
