@@ -19,6 +19,7 @@ GRIN export (accession-level passport data) -- out of scope here.
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 
 import pandas as pd
 
@@ -116,3 +117,79 @@ def drop_placeholder_rows(df: pd.DataFrame) -> pd.DataFrame:
     ranking, so dropping them first is safe.
     """
     return df[df["Inventory Type"] != "**"].copy()
+
+
+_TYPE_LETTER_TO_LABEL = {"o": "ORIGINAL", "i": "INCREASE"}
+
+
+@dataclass(frozen=True)
+class AdaptedGrinExport:
+    """Output of adapt_raw_export: two frames feeding the existing pipeline differently.
+
+    df_primary: one row per surviving lot, in the same normalized shape
+    data_prep.py already consumes. Meant to be run through the existing,
+    unmodified clean_ages -> build_model_dataset / build_ranking_dataset,
+    exactly like the old CSV/XLSX path.
+
+    df_borrowed: "borrowed" test points -- rows with real test data but no
+    own resolvable SeedAge, salvaged via a same-Accession sibling lot's year
+    (see resolve_borrowed_row). Has no SeedAge column at all, so it can only
+    ever reach model-fitting, never ranking.
+    """
+
+    df_primary: pd.DataFrame
+    df_borrowed: pd.DataFrame
+
+
+def _species_group(species: object, genus_prefix: str) -> str | None:
+    """Species value, except the unresolved-to-species placeholder becomes NaN.
+
+    Excludes it from ever forming its own species-tier deterioration model
+    (mixing unrelated species into one curve would be meaningless) while
+    still letting it participate fully in Origin/Global fits.
+    """
+    if species == f"{genus_prefix} spp.":
+        return None
+    return species
+
+
+def adapt_raw_export(
+    df_raw: pd.DataFrame, as_of_year: int, genus_prefix: str = "Astragalus"
+) -> AdaptedGrinExport:
+    """Adapt a raw GRIN-Global Curator Tool export into the shape data_prep.py consumes."""
+    df = filter_to_genus(df_raw, genus_prefix)
+    df = drop_placeholder_rows(df)
+
+    parsed = df["Inventory Suffix"].apply(parse_inventory_suffix)
+    lot_years = pd.Series([t[0] for t in parsed], index=df.index, dtype="float64")
+    own_letters = [t[1] for t in parsed]
+
+    rows = list(zip(df["Accession"], lot_years, own_letters))
+    letters = infer_original_vs_increase(rows)
+
+    viability_year = pd.to_datetime(df["Tested Date"], errors="coerce").dt.year.astype("float64")
+
+    df_primary = pd.DataFrame(
+        {
+            "Accession": df["Accession"].to_numpy(),
+            "SeedAge": (as_of_year - lot_years).to_numpy(),
+            "AgeAtTest": (viability_year - lot_years).to_numpy(),
+            "Viability": df["Percent Viable"].to_numpy(),
+            "ViabilityYear": viability_year.to_numpy(),
+            "Status": df["Inventory Status"].to_numpy(),
+            "Species": df["Taxon"].to_numpy(),
+            "Origin": df["Origin"].to_numpy(),
+            "Type": [_TYPE_LETTER_TO_LABEL.get(letter) for letter in letters],
+            "EstTotalSeed": df["Quantity On Hand"].to_numpy(),
+        }
+    )
+    df_primary["SpeciesGroup"] = df_primary["Species"].apply(
+        lambda s: _species_group(s, genus_prefix)
+    )
+    df_primary["EstLiveSeed"] = df_primary["EstTotalSeed"] * df_primary["Viability"] / 100
+
+    df_borrowed = pd.DataFrame(
+        columns=["Accession", "AgeAtTest", "Viability", "Species", "SpeciesGroup", "Origin"]
+    )
+
+    return AdaptedGrinExport(df_primary=df_primary, df_borrowed=df_borrowed)

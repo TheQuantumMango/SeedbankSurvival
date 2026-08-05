@@ -3,11 +3,28 @@ from __future__ import annotations
 import pandas as pd
 
 from seedbank_survival.grin_import import (
+    adapt_raw_export,
     drop_placeholder_rows,
     filter_to_genus,
     infer_original_vs_increase,
     parse_inventory_suffix,
 )
+
+
+def _raw_export_row(**overrides):
+    row = {
+        "Taxon": "Astragalus cicer",
+        "Inventory Type": "SD",
+        "Inventory Suffix": "37o",
+        "Accession": "PI 100000",
+        "Inventory Status": "Available",
+        "Percent Viable": 90.0,
+        "Tested Date": pd.Timestamp("2003-04-22"),
+        "Origin": "Turkey",
+        "Quantity On Hand": 1000.0,
+    }
+    row.update(overrides)
+    return row
 
 
 def test_parse_two_digit_year_with_letter():
@@ -89,3 +106,43 @@ def test_drop_placeholder_rows_removes_double_star_type():
     })
     result = drop_placeholder_rows(df)
     assert result["Accession"].tolist() == ["A1", "A3"]
+
+
+def test_adapt_raw_export_computes_seed_age_and_age_at_test():
+    df_raw = pd.DataFrame([_raw_export_row()])
+    result = adapt_raw_export(df_raw, as_of_year=2026)
+    row = result.df_primary.iloc[0]
+    assert row["SeedAge"] == 2026 - 1937
+    assert row["AgeAtTest"] == 2003 - 1937
+    assert row["Type"] == "ORIGINAL"
+    assert row["Viability"] == 90.0
+    assert row["Species"] == "Astragalus cicer"
+    assert row["SpeciesGroup"] == "Astragalus cicer"
+
+
+def test_adapt_raw_export_filters_genus_and_placeholders_first():
+    df_raw = pd.DataFrame(
+        [
+            _raw_export_row(Accession="PI 1"),
+            _raw_export_row(Accession="PI 2", Taxon="Elymus elymoides"),
+            _raw_export_row(Accession="PI 3", **{"Inventory Type": "**"}),
+        ]
+    )
+    result = adapt_raw_export(df_raw, as_of_year=2026)
+    assert result.df_primary["Accession"].tolist() == ["PI 1"]
+
+
+def test_adapt_raw_export_excludes_unresolved_species_from_species_group():
+    df_raw = pd.DataFrame([_raw_export_row(Taxon="Astragalus spp.")])
+    result = adapt_raw_export(df_raw, as_of_year=2026)
+    row = result.df_primary.iloc[0]
+    assert row["Species"] == "Astragalus spp."
+    assert pd.isna(row["SpeciesGroup"])
+
+
+def test_adapt_raw_export_leaves_seed_age_nan_for_unparseable_suffix():
+    df_raw = pd.DataFrame([_raw_export_row(**{"Inventory Suffix": "BG"})])
+    result = adapt_raw_export(df_raw, as_of_year=2026)
+    row = result.df_primary.iloc[0]
+    assert pd.isna(row["SeedAge"])
+    assert pd.isna(row["AgeAtTest"])
