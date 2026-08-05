@@ -23,8 +23,11 @@ def _predict_row(
 
     # A tighter-sample-size tier isn't necessarily a better-fit one -- if the
     # genus-wide curve explains the data better than the tier the fallback
-    # above picked, prefer it instead.
-    if model_used != "Global" and global_model.r2 > model.r2:
+    # above picked, prefer it instead. A tier's R^2 can be NaN (a tiny,
+    # near-zero-variance group, e.g. 3 nearly-identical Viability values --
+    # rare but real on actual data) -- treat unknown confidence the same as
+    # losing the comparison, since there's no basis to trust it over Global.
+    if model_used != "Global" and not (model.r2 >= global_model.r2):
         model, model_used = global_model, "Global"
 
     predicted = model.intercept + (model.slope * age)

@@ -4,6 +4,8 @@ old-schema and raw-GRIN data, so it doesn't need either fixture.
 """
 from __future__ import annotations
 
+import math
+
 import pandas as pd
 
 from seedbank_survival.deterioration import SlopeModel
@@ -53,3 +55,16 @@ def test_global_tier_never_overrides_itself():
 
     assert result.loc[0, "ModelUsed"] == "Global"
     assert result.loc[0, "ModelConfidence"] == 0.6
+
+
+def test_nan_confidence_defers_to_global():
+    # A near-zero-variance group (e.g. 3 nearly-identical Viability values)
+    # can produce an undefined R^2 -- real on actual data, not hypothetical.
+    species_models = {"S1": SlopeModel(intercept=96.0, slope=0.0, n=3, r2=float("nan"))}
+    global_model = SlopeModel(intercept=80, slope=-0.5, n=1000, r2=0.6)
+
+    result = predict_hierarchical(_df_ranking(), species_models, {}, global_model)
+
+    assert result.loc[0, "ModelUsed"] == "Global"
+    assert result.loc[0, "ModelConfidence"] == 0.6
+    assert not math.isnan(result.loc[0, "ModelConfidence"])
