@@ -14,6 +14,7 @@ _OUTPUT_COLUMNS = [
     "PredictedViability_2026",
     "YearsToZero",
     "ModelUsed",
+    "ModelConfidence",
 ]
 
 _OUTPUT_COLUMN_NAMES = [
@@ -25,6 +26,7 @@ _OUTPUT_COLUMN_NAMES = [
     "EstimatedViability_2026",
     "YearsRemainingTo0%",
     "ModelUsed",
+    "ModelConfidence",
 ]
 
 
@@ -123,5 +125,8 @@ def build_priority_table(
     priority_table["YearsRemainingTo0%"] = (
         priority_table["YearsRemainingTo0%"].replace(np.inf, np.nan).round(1)
     )
+    # 2 decimals, distinct from the 1-decimal convention above -- this is a
+    # model R^2 (goodness of fit), not a viability percentage.
+    priority_table["ModelConfidence"] = priority_table["ModelConfidence"].round(2)
 
     return priority_table

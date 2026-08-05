@@ -15,19 +15,22 @@ def _predict_row(
     age = row["SeedAge"]
 
     if row["Species"] in species_models:
-        model = species_models[row["Species"]]
-        model_used = "Species"
+        model, model_used = species_models[row["Species"]], "Species"
     elif row["Origin"] in origin_models:
-        model = origin_models[row["Origin"]]
-        model_used = "Origin"
+        model, model_used = origin_models[row["Origin"]], "Origin"
     else:
-        model = global_model
-        model_used = "Global"
+        model, model_used = global_model, "Global"
+
+    # A tighter-sample-size tier isn't necessarily a better-fit one -- if the
+    # genus-wide curve explains the data better than the tier the fallback
+    # above picked, prefer it instead.
+    if model_used != "Global" and global_model.r2 > model.r2:
+        model, model_used = global_model, "Global"
 
     predicted = model.intercept + (model.slope * age)
     predicted = np.clip(predicted, 0, 100)
 
-    return pd.Series([predicted, model_used])
+    return pd.Series([predicted, model_used, model.r2])
 
 
 def predict_hierarchical(
@@ -36,9 +39,15 @@ def predict_hierarchical(
     origin_models: dict[str, SlopeModel],
     global_model: SlopeModel,
 ) -> pd.DataFrame:
-    """Predict current viability per accession, falling back Species -> Origin -> Global."""
+    """Predict current viability per accession.
+
+    Falls back Species -> Origin -> Global by data availability, then uses
+    Global instead whenever its R^2 beats the tier that fallback picked --
+    a tier fit on very little data can look "specific" while actually
+    explaining the deterioration worse than the genus-wide curve.
+    """
     df_ranking = df_ranking.copy()
-    df_ranking[["PredictedViability_2026", "ModelUsed"]] = df_ranking.apply(
+    df_ranking[["PredictedViability_2026", "ModelUsed", "ModelConfidence"]] = df_ranking.apply(
         _predict_row,
         axis=1,
         args=(species_models, origin_models, global_model),

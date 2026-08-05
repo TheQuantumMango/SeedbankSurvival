@@ -156,8 +156,12 @@ def test_model_tier_selection(synthetic_accessions_df):
         "ACC-F1", "ACC-G1", "ACC-N1",  # newly included by the whitelist fix
         "ACC-P",  # depleted-lot fallback case, still Species alpha either way
     ]
-    expected_origin_tier = ["ACC-B1", "ACC-C1", "ACC-C2"]
-    expected_global_tier = ["ACC-K"]
+    # ACC-B1/ACC-C1/ACC-C2 would naively fall to the Origin CountryB model
+    # (Species beta/gamma have too few rows each), but CountryB's R^2 (0.543,
+    # fit on only 3 points) is lower than Global's (0.669) -- the confidence
+    # override in hierarchical.py prefers Global instead.
+    expected_origin_tier = []
+    expected_global_tier = ["ACC-K", "ACC-B1", "ACC-C1", "ACC-C2"]
 
     for accession in expected_species_tier:
         assert by_accession[accession] == "Species", accession
