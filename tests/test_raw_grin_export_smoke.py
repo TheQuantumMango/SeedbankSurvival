@@ -40,8 +40,8 @@ def test_pipeline_runs_end_to_end_on_raw_export():
     assert len(df_inventory) >= len(df_ranking)  # no per-accession dedup
 
     global_model = sb.fit_global_model(df_model)
-    species_models = sb.fit_group_models(df_model, "SpeciesGroup", min_n=3)
-    origin_models = sb.fit_group_models(df_model, "Origin", min_n=3)
+    species_models = sb.fit_group_models(df_model, "SpeciesGroup")
+    origin_models = sb.fit_group_models(df_model, "Origin")
     assert "Astragalus spp." not in species_models
 
     df_ranking = sb.predict_hierarchical(df_ranking, species_models, origin_models, global_model)

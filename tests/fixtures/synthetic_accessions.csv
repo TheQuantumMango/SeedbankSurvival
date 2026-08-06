@@ -14,6 +14,7 @@ ACC-J1,80o,80,80,15,Available,Astragalus alpha,CountryA,500
 ACC-E1,05o,5,5,50,Available,Astragalus epsilon,CountryE,500
 ACC-E2,10o,10,10,55,Available,Astragalus epsilon,CountryE,500
 ACC-E3,15o,15,15,60,Available,Astragalus epsilon,CountryE,500
+ACC-E4,20o,20,20,65,Available,Astragalus epsilon,CountryE,500
 ACC-K,12o,12,12,68,Available,Astragalus kappa,CountryK,500
 ACC-K,28i,28,28,48,Available,Astragalus kappa,CountryK,500
 ACC-L1,35o,35,35,45,Exhausted supply,Astragalus alpha,CountryA,0

@@ -54,14 +54,17 @@ def _base_args(**overrides) -> argparse.Namespace:
 
 @pytest.fixture
 def three_species_rows():
-    # Enough rows for a real Species-tier model (min_n=3) so the pipeline has
-    # something non-trivial to fit and predict for. Lot years (from the
-    # suffix) must precede the default Tested Date's year (2003) so
-    # AgeAtTest = ViabilityYear - lot_year comes out positive.
+    # Enough rows for a real Species-tier model (min_n=4 -- a quadratic fit
+    # needs at least 1 residual degree of freedom, see deterioration.py's
+    # CurveModel) so the pipeline has something non-trivial to fit and
+    # predict for. Lot years (from the suffix) must precede the default
+    # Tested Date's year (2003) so AgeAtTest = ViabilityYear - lot_year
+    # comes out positive. Name kept from when min_n was 3; not worth an
+    # unrelated rename.
     return [
         _inventory_row(Accession=f"PI {i}", **{"Inventory Suffix": suffix, "Percent Viable": v})
         for i, (suffix, v) in enumerate(
-            [("90o", 90.0), ("95o", 70.0), ("99o", 50.0)], start=1
+            [("90o", 90.0), ("95o", 70.0), ("99o", 50.0), ("85o", 30.0)], start=1
         )
     ]
 
@@ -112,7 +115,7 @@ def test_happy_path_writes_all_three_outputs(tmp_path, three_species_rows):
     assert (out_dir / "report.html").exists()
 
     accession_csv = pd.read_csv(out_dir / "accession_view.csv")
-    assert len(accession_csv) == 3
+    assert len(accession_csv) == 4
     assert "ModelConfidence" in accession_csv.columns
     assert "Location" in accession_csv.columns
     assert "MaintenanceSite" in accession_csv.columns

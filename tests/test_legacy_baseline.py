@@ -1,11 +1,12 @@
 """Characterization tests: the new src/seedbank_survival modules must reproduce
 tests/legacy_baseline/pipeline.py (the oracle) for the parts of the pipeline that
-haven't been deliberately changed yet -- currently that's everything upstream of
-the Status whitelist (data cleaning, model fitting). The Status whitelist itself
-was fixed in data_prep.DEFAULT_VALID_STATUSES (see that module for the full
-included/excluded reasoning), so ranking membership is now EXPECTED to diverge
-from the oracle for specific accessions -- that divergence is asserted directly
-below, not treated as a failure.
+haven't been deliberately changed -- currently that's row-level data cleaning and
+WHICH points feed a given group's model (group fitting itself never looks at
+Status). Several things have since been deliberately changed on top of that --
+the Status whitelist, depleted-lot fallback, real-seed broadening, and (most
+recently) the deterioration curve's functional form itself (linear -> quadratic,
+see deterioration.py's CurveModel) -- each asserted directly below as an
+intentional divergence, not treated as a failure.
 
 tests/fixtures/synthetic_accessions.csv is small and hand-designed so every
 branch below can be reasoned about directly, without needing to compute
@@ -19,9 +20,13 @@ regression coefficients by hand:
   Species beta / gamma (Origin B): 1 and 2 qualifying rows respectively --
     neither reaches the n=3 Species threshold, but combined they give Origin
     B exactly 3 -> both species fall back to the Origin-tier model.
-  Species epsilon (Origin E): 3 qualifying rows with viability *increasing*
+  Species epsilon (Origin E): 4 qualifying rows with viability *increasing*
     with age (perfectly linear, slope = +1.0) -> gets a Species-tier model
     with a non-negative slope, exercising the years-to-zero "inf" branch.
+    4, not 3: a quadratic fit (deterioration.py's CurveModel) on exactly 3
+    points has zero residual degrees of freedom and is always degenerate
+    (r2=1.0, undefined p-value) regardless of the true underlying
+    relationship -- 4 is the minimum for the fit to mean anything.
   Species kappa (Origin K): 2 rows sharing one Accession at different
     SeedAge -- exercises both the Accession dedup (idxmin) logic and the
     Global-tier fallback (neither Species nor Origin reaches n=3).
@@ -63,7 +68,6 @@ regression coefficients by hand:
 from __future__ import annotations
 
 import pandas as pd
-import pytest
 
 import seedbank_survival as sb
 from tests.legacy_baseline.pipeline import run_legacy_pipeline
@@ -75,8 +79,8 @@ def run_modular_pipeline(df: pd.DataFrame) -> dict:
     df_ranking = sb.build_ranking_dataset(df_clean)
 
     global_model = sb.fit_global_model(df_model)
-    species_models = sb.fit_group_models(df_model, "Species", min_n=3)
-    origin_models = sb.fit_group_models(df_model, "Origin", min_n=3)
+    species_models = sb.fit_group_models(df_model, "Species", min_n=4)
+    origin_models = sb.fit_group_models(df_model, "Origin", min_n=4)
 
     df_ranking = sb.predict_hierarchical(
         df_ranking, species_models, origin_models, global_model
@@ -95,28 +99,26 @@ def run_modular_pipeline(df: pd.DataFrame) -> dict:
     }
 
 
-def test_model_fitting_matches_legacy_oracle(synthetic_accessions_df):
-    """Model fitting never looks at Status, so it must still match the oracle
-    exactly even after the Status whitelist fix below."""
+def test_model_fitting_group_membership_matches_legacy_oracle(synthetic_accessions_df):
+    """Model fitting never looks at Status, so WHICH rows feed a given group's
+    fit (n) must still match the oracle exactly, for every group both the
+    oracle (min_n=3) and the modular pipeline (min_n=4) agree reaches
+    threshold. The fitted VALUES (intercept/slope) are NOT compared here --
+    the oracle fits a straight line and the modular pipeline now fits a
+    quadratic curve (see deterioration.py's CurveModel), a later, deliberate
+    divergence layered on top of this one, so the two are no longer the same
+    kind of number."""
     oracle = run_legacy_pipeline(synthetic_accessions_df)
     modular = run_modular_pipeline(synthetic_accessions_df)
 
-    assert modular["global_model"].intercept == pytest.approx(oracle["global_intercept"])
-    assert modular["global_model"].slope == pytest.approx(oracle["global_slope"])
+    common_species = set(modular["species_models"]) & set(oracle["species_models"])
+    assert common_species, "expected at least one species both pipelines fit"
+    for species in common_species:
+        assert modular["species_models"][species].n == oracle["species_models"][species]["n"]
 
-    assert set(modular["species_models"]) == set(oracle["species_models"])
-    for species, oracle_model in oracle["species_models"].items():
-        got = modular["species_models"][species]
-        assert got.intercept == pytest.approx(oracle_model["intercept"])
-        assert got.slope == pytest.approx(oracle_model["slope"])
-        assert got.n == oracle_model["n"]
-        assert got.r2 == pytest.approx(oracle_model["r2"])
-
-    assert set(modular["origin_models"]) == set(oracle["origin_models"])
-    for origin, oracle_model in oracle["origin_models"].items():
-        got = modular["origin_models"][origin]
-        assert got.intercept == pytest.approx(oracle_model["intercept"])
-        assert got.slope == pytest.approx(oracle_model["slope"])
+    common_origins = set(modular["origin_models"]) & set(oracle["origin_models"])
+    for origin in common_origins:
+        assert modular["origin_models"][origin].n == oracle["origin_models"][origin]["n"]
 
 
 def test_status_whitelist_fix_changes_ranking_membership(synthetic_accessions_df):
@@ -161,15 +163,17 @@ def test_model_tier_selection(synthetic_accessions_df):
 
     expected_species_tier = [
         "ACC-A1", "ACC-A2", "ACC-A3", "ACC-A4", "ACC-I1", "ACC-J1",
-        "ACC-E1", "ACC-E2", "ACC-E3",
+        "ACC-E1", "ACC-E2", "ACC-E3", "ACC-E4",
         "ACC-F1", "ACC-G1", "ACC-N1",  # newly included by the whitelist fix
         "ACC-P",  # depleted-lot fallback case, still Species alpha either way
         "ACC-Q",  # included via the real-seed-OR-whitelisted-status broadening
     ]
     # ACC-B1/ACC-C1/ACC-C2 would naively fall to the Origin CountryB model
-    # (Species beta/gamma have too few rows each), but CountryB's R^2 (0.543,
-    # fit on only 3 points) is lower than Global's (0.669) -- the confidence
-    # override in hierarchical.py prefers Global instead.
+    # (Species beta/gamma have too few rows each), but CountryB only has 3
+    # rows combined -- one short of min_n=4, so no Origin CountryB model is
+    # even attempted (a quadratic fit on exactly 3 points is always
+    # degenerate anyway; see deterioration.py's CurveModel). Falls straight
+    # to Global.
     expected_origin_tier = []
     expected_global_tier = ["ACC-K", "ACC-B1", "ACC-C1", "ACC-C2"]
 
@@ -187,7 +191,7 @@ def test_non_negative_slope_group_gives_nan_years_remaining(synthetic_accessions
     modular = run_modular_pipeline(synthetic_accessions_df)
     table = modular["priority_table"].set_index("Accession")
 
-    for accession in ["ACC-E1", "ACC-E2", "ACC-E3"]:
+    for accession in ["ACC-E1", "ACC-E2", "ACC-E3", "ACC-E4"]:
         assert pd.isna(table.loc[accession, "YearsRemainingTo0%"])
         assert table.loc[accession, "PrimaryReason"] == "General deterioration"
 

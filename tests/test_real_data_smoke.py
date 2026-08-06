@@ -33,8 +33,8 @@ def test_pipeline_runs_end_to_end_on_real_export(path):
     assert len(df_ranking) > 0
 
     global_model = sb.fit_global_model(df_model)
-    species_models = sb.fit_group_models(df_model, "Species", min_n=3)
-    origin_models = sb.fit_group_models(df_model, "Origin", min_n=3)
+    species_models = sb.fit_group_models(df_model, "Species")
+    origin_models = sb.fit_group_models(df_model, "Origin")
 
     df_ranking = sb.predict_hierarchical(df_ranking, species_models, origin_models, global_model)
     assert df_ranking["PredictedViability_2026"].between(0, 100).all()
