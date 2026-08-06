@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from .deterioration import SlopeModel
+from .deterioration import CurveModel
 
 _OUTPUT_COLUMNS = [
     "Accession",
@@ -44,21 +44,38 @@ _OUTPUT_COLUMN_NAMES = [
 _LOCATION_COLUMNS = ("MaintenanceSite", "Location")
 
 
+def _model_for_row(
+    row: pd.Series,
+    species_models: dict[str, CurveModel],
+    origin_models: dict[str, CurveModel],
+    global_model: CurveModel,
+) -> CurveModel:
+    if row["ModelUsed"] == "Species":
+        return species_models[row["Species"]]
+    if row["ModelUsed"] == "Origin":
+        return origin_models[row["Origin"]]
+    return global_model
+
+
 def estimate_years_to_zero(
     row: pd.Series,
-    species_models: dict[str, SlopeModel],
-    origin_models: dict[str, SlopeModel],
-    global_model: SlopeModel,
+    species_models: dict[str, CurveModel],
+    origin_models: dict[str, CurveModel],
+    global_model: CurveModel,
 ) -> float:
-    """Years until predicted viability reaches 0%, given the model tier that produced it."""
-    viability = row["PredictedViability_2026"]
+    """Years until predicted viability reaches 0%, given the model tier that produced it.
 
-    if row["ModelUsed"] == "Species":
-        slope = species_models[row["Species"]].slope
-    elif row["ModelUsed"] == "Origin":
-        slope = origin_models[row["Origin"]].slope
-    else:
-        slope = global_model.slope
+    A quadratic curve's rate of decline isn't constant, so this uses the
+    curve's INSTANTANEOUS slope at the row's current age as a local linear
+    approximation of the near-term trajectory, rather than solving for where
+    the full curve eventually crosses zero (which can have 0, 1, or 2 real
+    roots, or curve back upward -- not a meaningful "years remaining" for a
+    curator's near-term planning). Reduces to the exact previous calculation
+    when the curve is a straight line (slope_at is then constant everywhere).
+    """
+    viability = row["PredictedViability_2026"]
+    model = _model_for_row(row, species_models, origin_models, global_model)
+    slope = model.slope_at(row["SeedAge"])
 
     if slope >= 0:
         return np.inf
@@ -69,9 +86,9 @@ def estimate_years_to_zero(
 
 def determine_primary_reason(
     row: pd.Series,
-    species_models: dict[str, SlopeModel],
-    origin_models: dict[str, SlopeModel],
-    global_model: SlopeModel,
+    species_models: dict[str, CurveModel],
+    origin_models: dict[str, CurveModel],
+    global_model: CurveModel,
 ) -> str:
     """Human-readable summary of why an accession is flagged as regeneration priority."""
     reasons = []
@@ -81,14 +98,17 @@ def determine_primary_reason(
     elif row["SeedAge"] >= 40:
         reasons.append("Old seed age")
 
+    # Compare instantaneous rates of decline at this row's own age -- the
+    # only fair way to compare two curves' local steepness at a shared point,
+    # now that neither has a single constant "the slope."
     if row["ModelUsed"] == "Species":
-        slope = species_models[row["Species"]].slope
-        if slope < global_model.slope * 1.5:
+        slope = species_models[row["Species"]].slope_at(row["SeedAge"])
+        if slope < global_model.slope_at(row["SeedAge"]) * 1.5:
             reasons.append("Fast species deterioration")
 
     if row["ModelUsed"] == "Origin":
-        slope = origin_models[row["Origin"]].slope
-        if slope < global_model.slope * 1.5:
+        slope = origin_models[row["Origin"]].slope_at(row["SeedAge"])
+        if slope < global_model.slope_at(row["SeedAge"]) * 1.5:
             reasons.append("Fast origin deterioration")
 
     # Distinguish a directly-observed result from a purely modeled one --
@@ -115,9 +135,9 @@ def determine_primary_reason(
 
 def build_priority_table(
     df_ranking: pd.DataFrame,
-    species_models: dict[str, SlopeModel],
-    origin_models: dict[str, SlopeModel],
-    global_model: SlopeModel,
+    species_models: dict[str, CurveModel],
+    origin_models: dict[str, CurveModel],
+    global_model: CurveModel,
     top_n: int = 50,
 ) -> pd.DataFrame:
     """The N lowest-predicted-viability accessions, with deterioration diagnostics attached.

@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 
 import pandas as pd
 
-from .deterioration import SlopeModel
+from .deterioration import CurveModel
 
 _TABLE_COLUMNS = [
     ("Accession", "Accession"),
@@ -44,31 +44,31 @@ _REFERENCE_COLOR = "var(--series-ref)"
 
 def _select_charted_species(
     accession_table: pd.DataFrame,
-    species_models: dict[str, SlopeModel],
+    species_models: dict[str, CurveModel],
     top_n_charts: int,
 ) -> list[str]:
     """Species that actually won the confidence comparison for >=1 row, ranked
     by how many accession-view rows use that tier, capped at top_n_charts.
 
-    A species with its own fitted SlopeModel whose points all got overridden
-    back to Global by the R^2 comparison does NOT get its own chart -- the
-    charts would otherwise visually contradict ModelUsed/ModelConfidence.
+    A species with its own fitted CurveModel whose points all got overridden
+    back to Global by the R^2/significance comparison does NOT get its own
+    chart -- the charts would otherwise visually contradict
+    ModelUsed/ModelConfidence.
     """
     won = accession_table[accession_table["ModelUsed"] == "Species"]
     counts = won["Species"].value_counts()
     return [name for name in counts.index if name in species_models][:top_n_charts]
 
 
-def _trend_endpoints(model: SlopeModel, x_max: float) -> tuple[float, float]:
-    y0 = max(0.0, min(100.0, model.intercept))
-    y1 = max(0.0, min(100.0, model.intercept + model.slope * x_max))
-    return y0, y1
+def _curve_coeffs(model: CurveModel) -> dict:
+    return {"intercept": model.intercept, "linearCoef": model.linear_coef,
+            "quadCoef": model.quad_coef, "r2": model.r2, "n": model.n}
 
 
 def _build_charts_payload(
     df_model: pd.DataFrame,
-    species_models: dict[str, SlopeModel],
-    global_model: SlopeModel,
+    species_models: dict[str, CurveModel],
+    global_model: CurveModel,
     charted_species: list[str],
     species_group_col: str,
 ) -> list[dict]:
@@ -79,8 +79,7 @@ def _build_charts_payload(
         {
             "title": f"Genus-wide (all {len(df_model)} test points)",
             "points": df_model[["AgeAtTest", "Viability"]].round(1).to_numpy().tolist(),
-            "model": {"intercept": global_model.intercept, "slope": global_model.slope,
-                      "r2": global_model.r2, "n": global_model.n},
+            "model": _curve_coeffs(global_model),
             "reference": None,
             "xMax": x_max,
         }
@@ -92,9 +91,8 @@ def _build_charts_payload(
             {
                 "title": name,
                 "points": points.round(1).to_numpy().tolist(),
-                "model": {"intercept": model.intercept, "slope": model.slope,
-                          "r2": model.r2, "n": model.n},
-                "reference": {"intercept": global_model.intercept, "slope": global_model.slope},
+                "model": _curve_coeffs(model),
+                "reference": _curve_coeffs(global_model),
                 "xMax": x_max,
             }
         )
@@ -105,9 +103,9 @@ def build_report(
     accession_table: pd.DataFrame,
     inventory_table: pd.DataFrame,
     df_model: pd.DataFrame,
-    species_models: dict[str, SlopeModel],
-    origin_models: dict[str, SlopeModel],
-    global_model: SlopeModel,
+    species_models: dict[str, CurveModel],
+    origin_models: dict[str, CurveModel],
+    global_model: CurveModel,
     genera: list[str],
     as_of_year: int,
     top_n_charts: int = 8,
@@ -602,6 +600,10 @@ requestAnimationFrame(fitTablePanes); // catch a viewport/layout not yet settled
 const chartGrid = document.getElementById("chartGrid");
 const tooltip = document.getElementById("tooltip");
 
+function evalCurve(model, age) {
+  return model.intercept + model.linearCoef * age + model.quadCoef * age * age;
+}
+
 function buildChartSvg(chart) {
   const W = 320, H = 210;
   const M = { top: 8, right: 10, bottom: 26, left: 30 };
@@ -619,10 +621,20 @@ function buildChartSvg(chart) {
   svg += `<line class="axis-line" x1="${M.left}" y1="${H - M.bottom}" x2="${W - M.right}" y2="${H - M.bottom}"/>`;
   svg += `<text class="axis-label" x="${M.left + plotW / 2}" y="${H - 4}" text-anchor="middle">age (yrs)</text>`;
 
+  // Quadratic, not a straight line -- sample it at many points rather than
+  // just two endpoints, so the drawn path actually follows the curve
+  // (including any plateau-then-drop shape) instead of cutting a chord
+  // across it. A linear fit (quadCoef 0) still renders correctly this way,
+  // just as a visually straight sampled path.
   function trendPath(model) {
-    const y0 = Math.max(0, Math.min(100, model.intercept));
-    const y1 = Math.max(0, Math.min(100, model.intercept + model.slope * xMax));
-    return `M ${sx(0)} ${sy(y0)} L ${sx(xMax)} ${sy(y1)}`;
+    const STEPS = 40;
+    let d = "";
+    for (let i = 0; i <= STEPS; i++) {
+      const age = (i / STEPS) * xMax;
+      const v = Math.max(0, Math.min(100, evalCurve(model, age)));
+      d += (i === 0 ? "M " : "L ") + sx(age) + " " + sy(v) + " ";
+    }
+    return d.trim();
   }
 
   if (chart.reference) {
@@ -639,8 +651,16 @@ function buildChartSvg(chart) {
 DATA.charts.forEach(chart => {
   const div = document.createElement("div");
   div.className = "chart-card";
+  // A curve has no single constant slope -- show the average rate of
+  // change over the plotted age range instead of one instantaneous value.
+  // Clipped the same way the drawn curve is: an unclipped quadratic can
+  // extrapolate to wildly implausible values (e.g. -300%) at the edge of a
+  // wide age range even when the curve is visibly flat at 0 for most of
+  // it, which would otherwise contradict what the chart actually shows.
+  const clip = v => Math.max(0, Math.min(100, v));
+  const avgSlope = (clip(evalCurve(chart.model, chart.xMax)) - clip(evalCurve(chart.model, 0))) / chart.xMax;
   div.innerHTML = `<h3>${chart.title}</h3>` + buildChartSvg(chart) +
-    `<div class="chart-stat">n=${chart.model.n} · R²=${chart.model.r2.toFixed(2)} · ${chart.model.slope.toFixed(2)}%/yr</div>`;
+    `<div class="chart-stat">n=${chart.model.n} · R²=${chart.model.r2.toFixed(2)} · avg ${avgSlope.toFixed(2)}%/yr</div>`;
   chartGrid.appendChild(div);
 });
 

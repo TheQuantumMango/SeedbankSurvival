@@ -3,8 +3,12 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from seedbank_survival.deterioration import SlopeModel
+from seedbank_survival.deterioration import CurveModel
 from seedbank_survival.report import build_report
+
+
+def _curve(intercept, slope, n, r2, pvalue):
+    return CurveModel(intercept=intercept, linear_coef=slope, quad_coef=0.0, n=n, r2=r2, overall_pvalue=pvalue)
 
 _COLUMNS = [
     "Accession", "Suffix", "Status", "Species", "Origin", "SeedAge", "PrimaryReason",
@@ -48,8 +52,8 @@ def report_inputs():
             "SpeciesGroup": ["Astragalus cicer"] * 3,
         }
     )
-    species_models = {"Astragalus cicer": SlopeModel(intercept=90, slope=-1.5, n=3, r2=0.95, slope_pvalue=0.01)}
-    global_model = SlopeModel(intercept=85, slope=-1.0, n=3, r2=0.8, slope_pvalue=0.01)
+    species_models = {"Astragalus cicer": _curve(90, -1.5, n=3, r2=0.95, pvalue=0.01)}
+    global_model = _curve(85, -1.0, n=3, r2=0.8, pvalue=0.01)
     return {
         "accession_table": accession_table,
         "inventory_table": inventory_table,
@@ -84,9 +88,9 @@ def test_build_report_omits_species_that_never_won_a_row():
         ),
         # Species has a fitted model, but no row's ModelUsed ever resolved to "Species"
         # (all overridden to Global) -- must not get its own chart.
-        "species_models": {"Astragalus cicer": SlopeModel(intercept=90, slope=-1.5, n=3, r2=0.2, slope_pvalue=0.01)},
+        "species_models": {"Astragalus cicer": _curve(90, -1.5, n=3, r2=0.2, pvalue=0.01)},
         "origin_models": {},
-        "global_model": SlopeModel(intercept=85, slope=-1.0, n=3, r2=0.8, slope_pvalue=0.01),
+        "global_model": _curve(85, -1.0, n=3, r2=0.8, pvalue=0.01),
         "genera": ["Astragalus"],
         "as_of_year": 2026,
     }
@@ -141,7 +145,7 @@ def test_build_report_table_pane_is_independently_scrollable(report_inputs):
 
 def test_build_report_respects_chart_cap(report_inputs):
     species_models = {
-        f"Astragalus species{i}": SlopeModel(intercept=90, slope=-1.0, n=5, r2=0.9, slope_pvalue=0.01)
+        f"Astragalus species{i}": _curve(90, -1.0, n=5, r2=0.9, pvalue=0.01)
         for i in range(10)
     }
     accession_rows = [

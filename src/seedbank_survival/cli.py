@@ -102,8 +102,8 @@ def run(args: argparse.Namespace) -> int:
     df_inventory = data_prep.build_inventory_view(df_primary_clean)
 
     global_model = fit_global_model(df_model)
-    species_models = fit_group_models(df_model, "SpeciesGroup", min_n=3)
-    origin_models = fit_group_models(df_model, "Origin", min_n=3)
+    species_models = fit_group_models(df_model, "SpeciesGroup")
+    origin_models = fit_group_models(df_model, "Origin")
 
     df_ranking = predict_hierarchical(df_ranking, species_models, origin_models, global_model)
     df_inventory = predict_hierarchical(df_inventory, species_models, origin_models, global_model)
