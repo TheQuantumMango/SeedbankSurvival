@@ -7,6 +7,7 @@ from .deterioration import SlopeModel
 
 _OUTPUT_COLUMNS = [
     "Accession",
+    "Suffix",
     "Species",
     "Origin",
     "SeedAge",
@@ -19,6 +20,7 @@ _OUTPUT_COLUMNS = [
 
 _OUTPUT_COLUMN_NAMES = [
     "Accession",
+    "Suffix",
     "Species",
     "Origin",
     "SeedAge",

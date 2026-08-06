@@ -16,6 +16,7 @@ from .deterioration import SlopeModel
 
 _TABLE_COLUMNS = [
     ("Accession", "Accession"),
+    ("Suffix", "Suffix"),
     ("Species", "Species"),
     ("Origin", "Origin"),
     ("SeedAge", "Seed age"),
@@ -239,7 +240,7 @@ h1 { font-size: 24px; font-weight: 600; letter-spacing: -0.01em; margin: 0 0 6px
 
 .table-scroll {
   overflow: auto;
-  max-height: 62vh;
+  max-height: 62vh; /* fallback until JS sizes this to fill the remaining viewport */
   border: 1px solid var(--border);
   border-radius: 8px;
 }
@@ -418,8 +419,26 @@ document.querySelectorAll(".view-tab").forEach(tab => {
     const view = tab.dataset.view;
     document.getElementById("accessionCard").hidden = view !== "accession";
     document.getElementById("inventoryCard").hidden = view !== "inventory";
+    fitTablePanes();
   });
 });
+
+// ---------- fill-the-window table sizing ----------
+// A fixed vh percentage wastes/overflows space depending on how tall the
+// header/controls above it happen to render -- size each visible table pane
+// to use exactly the viewport height remaining below it instead.
+function fitTablePanes() {
+  document.querySelectorAll(".table-scroll").forEach(el => {
+    if (el.offsetParent === null) return; // hidden (inactive view)
+    const top = el.getBoundingClientRect().top;
+    const available = window.innerHeight - top - 36; // room for the row-count line below
+    el.style.maxHeight = Math.max(240, available) + "px";
+  });
+}
+window.addEventListener("resize", fitTablePanes);
+window.addEventListener("load", fitTablePanes);
+fitTablePanes();
+requestAnimationFrame(fitTablePanes); // catch a viewport/layout not yet settled on first paint
 
 // ---------- charts ----------
 const chartGrid = document.getElementById("chartGrid");

@@ -260,6 +260,7 @@ def adapt_raw_export(
     df_primary = pd.DataFrame(
         {
             "Accession": df["Accession"].to_numpy(),
+            "Suffix": df["Inventory Suffix"].to_numpy(),
             "SeedAge": (as_of_year - seed_age_years).to_numpy(),
             "AgeAtTest": (viability_year - lot_years).to_numpy(),
             "Viability": df["Percent Viable"].to_numpy(),

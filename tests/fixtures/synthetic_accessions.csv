@@ -1,24 +1,24 @@
-Accession,SeedAge,AgeAtTest,Viability,Status,Species,Origin,EstTotalSeed
-ACC-A1,10,10,88,Available,Astragalus alpha,CountryA,500
-ACC-A2,20,20,75,Available,Astragalus alpha,CountryA,500
-ACC-A3,30,30,60,Available,Astragalus alpha,CountryA,500
-ACC-A4,45,45,40,Original lot received,Astragalus alpha,CountryA,500
-ACC-B1,25,25,55,Available,Astragalus beta,CountryB,500
-ACC-C1,22,22,58,Available,Astragalus gamma,CountryB,500
-ACC-C2,24,24,53,Available,Astragalus gamma,CountryB,500
-ACC-F1,20,20,65,Low germination,Astragalus alpha,CountryA,500
-ACC-G1,18,18,62,Not viable,Astragalus alpha,CountryA,500
-ACC-H1,unk,10,50,Available,Astragalus alpha,CountryA,500
-ACC-I1,50,0,,Packaged,Astragalus alpha,CountryA,500
-ACC-J1,80,80,15,Available,Astragalus alpha,CountryA,500
-ACC-E1,5,5,50,Available,Astragalus epsilon,CountryE,500
-ACC-E2,10,10,55,Available,Astragalus epsilon,CountryE,500
-ACC-E3,15,15,60,Available,Astragalus epsilon,CountryE,500
-ACC-K,12,12,68,Available,Astragalus kappa,CountryK,500
-ACC-K,28,28,48,Available,Astragalus kappa,CountryK,500
-ACC-L1,35,35,45,Exhausted supply,Astragalus alpha,CountryA,0
-ACC-M1,40,40,42,Lot used for regeneration,Astragalus alpha,CountryA,0
-ACC-N1,33,33,48,Hold inventory sample for further clarification,Astragalus alpha,CountryA,500
-ACC-P,5,5,90,Available,Astragalus alpha,CountryA,0
-ACC-P,15,15,68,Available,Astragalus alpha,CountryA,500
-ACC-Q,28,28,52,Unknown status,Astragalus alpha,CountryA,500
+Accession,Suffix,SeedAge,AgeAtTest,Viability,Status,Species,Origin,EstTotalSeed
+ACC-A1,10o,10,10,88,Available,Astragalus alpha,CountryA,500
+ACC-A2,20o,20,20,75,Available,Astragalus alpha,CountryA,500
+ACC-A3,30o,30,30,60,Available,Astragalus alpha,CountryA,500
+ACC-A4,45o,45,45,40,Original lot received,Astragalus alpha,CountryA,500
+ACC-B1,25o,25,25,55,Available,Astragalus beta,CountryB,500
+ACC-C1,22o,22,22,58,Available,Astragalus gamma,CountryB,500
+ACC-C2,24o,24,24,53,Available,Astragalus gamma,CountryB,500
+ACC-F1,20o,20,20,65,Low germination,Astragalus alpha,CountryA,500
+ACC-G1,18o,18,18,62,Not viable,Astragalus alpha,CountryA,500
+ACC-H1,unk,unk,10,50,Available,Astragalus alpha,CountryA,500
+ACC-I1,50o,50,0,,Packaged,Astragalus alpha,CountryA,500
+ACC-J1,80o,80,80,15,Available,Astragalus alpha,CountryA,500
+ACC-E1,05o,5,5,50,Available,Astragalus epsilon,CountryE,500
+ACC-E2,10o,10,10,55,Available,Astragalus epsilon,CountryE,500
+ACC-E3,15o,15,15,60,Available,Astragalus epsilon,CountryE,500
+ACC-K,12o,12,12,68,Available,Astragalus kappa,CountryK,500
+ACC-K,28i,28,28,48,Available,Astragalus kappa,CountryK,500
+ACC-L1,35o,35,35,45,Exhausted supply,Astragalus alpha,CountryA,0
+ACC-M1,40i,40,40,42,Lot used for regeneration,Astragalus alpha,CountryA,0
+ACC-N1,33o,33,33,48,Hold inventory sample for further clarification,Astragalus alpha,CountryA,500
+ACC-P,05o,5,5,90,Available,Astragalus alpha,CountryA,0
+ACC-P,15i,15,15,68,Available,Astragalus alpha,CountryA,500
+ACC-Q,28o,28,28,52,Unknown status,Astragalus alpha,CountryA,500

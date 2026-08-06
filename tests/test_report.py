@@ -7,7 +7,7 @@ from seedbank_survival.deterioration import SlopeModel
 from seedbank_survival.report import build_report
 
 _COLUMNS = [
-    "Accession", "Species", "Origin", "SeedAge", "PrimaryReason",
+    "Accession", "Suffix", "Species", "Origin", "SeedAge", "PrimaryReason",
     "EstimatedViability_2026", "YearsRemainingTo0%", "ModelUsed", "ModelConfidence",
 ]
 
@@ -15,6 +15,7 @@ _COLUMNS = [
 def _table_row(**overrides):
     row = {
         "Accession": "PI 1",
+        "Suffix": "37o",
         "Species": "Astragalus cicer",
         "Origin": "Turkey",
         "SeedAge": 20,
