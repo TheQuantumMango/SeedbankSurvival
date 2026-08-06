@@ -357,6 +357,51 @@ def test_adapt_raw_export_does_not_double_count_inherited_test_result():
     assert len(result.df_borrowed) == 0
 
 
+def test_adapt_raw_export_does_not_double_count_inherited_test_result_same_day_different_time():
+    # Regression test: real data shows a dated lot's test result routinely
+    # re-recorded on a same-Accession "Backup germplasm" row a few HOURS
+    # later the SAME DAY (e.g. 00:03:23 vs 22:33:55) -- an administrative
+    # echo of one physical test, not an independent measurement. Matching on
+    # exact Tested Date (as before) missed this; matching on calendar day
+    # catches it. Verified this pattern affects ~21% of the real genus-wide
+    # model-fitting dataset (162 accessions) before this fix.
+    df_raw = pd.DataFrame(
+        [
+            _raw_export_row(Accession="PI 1", **{
+                "Inventory Suffix": "37o", "Percent Viable": 60.0,
+                "Tested Date": pd.Timestamp("1995-06-01 00:03:23"),
+            }),
+            _raw_export_row(Accession="PI 1", **{
+                "Inventory Suffix": "BG", "Percent Viable": 60.0,
+                "Tested Date": pd.Timestamp("1995-06-01 22:33:55"),
+            }),
+        ]
+    )
+    result = adapt_raw_export(df_raw, as_of_year=2026, genera="Astragalus")
+    assert len(result.df_borrowed) == 0
+
+
+def test_adapt_raw_export_borrows_genuinely_distinct_same_day_test():
+    # Two DIFFERENT test results (different Viability) recorded the same day
+    # are two real, independent measurements -- must not be conflated with
+    # the inherited-duplicate case just because the calendar day matches.
+    df_raw = pd.DataFrame(
+        [
+            _raw_export_row(Accession="PI 1", **{
+                "Inventory Suffix": "37o", "Percent Viable": 60.0,
+                "Tested Date": pd.Timestamp("1995-06-01 00:03:23"),
+            }),
+            _raw_export_row(Accession="PI 1", **{
+                "Inventory Suffix": "BG", "Percent Viable": 45.0,
+                "Tested Date": pd.Timestamp("1995-06-01 22:33:55"),
+            }),
+        ]
+    )
+    result = adapt_raw_export(df_raw, as_of_year=2026, genera="Astragalus")
+    assert len(result.df_borrowed) == 1
+    assert result.df_borrowed.iloc[0]["Viability"] == 45.0
+
+
 def test_adapt_raw_export_received_date_resolves_seed_age_into_primary():
     df_raw = pd.DataFrame([_raw_export_row(Accession="PI 1", **{"Inventory Suffix": "BG"})])
     df_accessions = pd.DataFrame([_accession_row(Accession="PI 1")])

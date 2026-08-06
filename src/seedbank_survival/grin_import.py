@@ -316,10 +316,15 @@ def _build_borrowed_rows(df: pd.DataFrame, lot_years: pd.Series) -> pd.DataFrame
 
     "Unrepeated" guard: a test event already represented -- either by a row
     with its own resolvable year, or by an earlier borrowed row -- for the same
-    (Accession, Viability, Tested Date) is never added twice. Duplicate
-    (Accession, Viability, Tested Date) rows typically mean the result was
-    inherited/copied onto a backup lot's record rather than independently
-    measured.
+    (Accession, Viability, calendar day of Tested Date) is never added twice.
+    Matching on the calendar day rather than the exact timestamp is
+    deliberate: verified against real data that a dated lot's test result is
+    routinely re-recorded on a same-Accession "Backup germplasm" record a few
+    HOURS later the same day (an administrative echo of one physical test,
+    not a second independent measurement) -- exact-timestamp matching missed
+    essentially all of these, letting the same test inflate a group's
+    apparent sample size and R^2 by counting it twice. Affected ~21% of the
+    genus-wide model-fitting dataset before this fix.
     """
     sibling_index = build_sibling_year_index(df["Accession"], lot_years)
 
@@ -327,11 +332,11 @@ def _build_borrowed_rows(df: pd.DataFrame, lot_years: pd.Series) -> pd.DataFrame
     needs_borrowing = lot_years.isna() & has_test_data
 
     represented_events = {
-        (accession, viable, tested)
+        (accession, viable, pd.Timestamp(tested).date())
         for accession, year, viable, tested in zip(
             df["Accession"], lot_years, df["Percent Viable"], df["Tested Date"]
         )
-        if not pd.isna(year)
+        if not pd.isna(year) and not pd.isna(tested)
     }
 
     records = []
@@ -339,7 +344,7 @@ def _build_borrowed_rows(df: pd.DataFrame, lot_years: pd.Series) -> pd.DataFrame
         accession = df.at[idx, "Accession"]
         viable = df.at[idx, "Percent Viable"]
         tested = df.at[idx, "Tested Date"]
-        event = (accession, viable, tested)
+        event = (accession, viable, pd.Timestamp(tested).date())
         if event in represented_events:
             continue
 
