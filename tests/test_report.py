@@ -108,17 +108,23 @@ def test_build_report_has_view_toggle_tabs(report_inputs):
     assert 'id="inventoryCard" hidden' in html
 
 
-def test_build_report_has_three_way_viability_radio_group(report_inputs):
+def test_build_report_has_three_way_viability_radio_group_on_both_views(report_inputs):
     html = build_report(**report_inputs)
-    assert 'name="viabilityFilter" value="all"' in html
-    assert 'name="viabilityFilter" value="exclude0"' in html
-    assert 'name="viabilityFilter" value="only0"' in html
+    for view in ("viabilityFilterAccession", "viabilityFilterInventory"):
+        assert f'name="{view}" value="all"' in html
+        assert f'name="{view}" value="exclude0"' in html
+        assert f'name="{view}" value="only0"' in html
     assert "deadOnlyCheckbox" not in html
+    # Two independent radio groups, not one shared name -- otherwise
+    # selecting a filter on one view would silently affect the other.
+    assert 'name="viabilityFilter"' not in html
 
 
-def test_build_report_has_accession_view_sort_note(report_inputs):
+def test_build_report_has_sort_note_on_both_views(report_inputs):
     html = build_report(**report_inputs)
+    assert html.count('class="sort-note"') == 2
     assert "highest need" in html.lower()
+    assert "lowest predicted viability packets first" in html.lower()
 
 
 def test_build_report_table_pane_is_independently_scrollable(report_inputs):

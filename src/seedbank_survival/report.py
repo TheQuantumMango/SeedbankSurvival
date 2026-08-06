@@ -299,9 +299,9 @@ svg.chart { display: block; width: 100%; height: auto; overflow: visible; }
       </div>
       <div class="controls">
         <fieldset class="radio-group" aria-label="Viability filter">
-          <label><input type="radio" name="viabilityFilter" value="all" checked> Show All</label>
-          <label><input type="radio" name="viabilityFilter" value="exclude0"> Exclude 0% Expected Viability</label>
-          <label><input type="radio" name="viabilityFilter" value="only0"> Show Only 0% Expected Viability</label>
+          <label><input type="radio" name="viabilityFilterAccession" value="all" checked> Show All</label>
+          <label><input type="radio" name="viabilityFilterAccession" value="exclude0"> Exclude 0% Expected Viability</label>
+          <label><input type="radio" name="viabilityFilterAccession" value="only0"> Show Only 0% Expected Viability</label>
         </fieldset>
       </div>
       <div class="table-scroll"><table id="accessionTable"></table></div>
@@ -311,8 +311,16 @@ svg.chart { display: block; width: 100%; height: auto; overflow: visible; }
     <section class="card" id="inventoryCard" hidden>
       <h2>Inventory view</h2>
       <p class="sub">Every physical packet with seed on hand, dead or alive -- for deciding what to test or discard.</p>
+      <p class="sort-note">Sorted by urgency: lowest predicted viability packets first.</p>
       <div class="controls">
         <input class="filter-input" type="text" placeholder="Filter by accession, species, origin, reason..." data-filter-for="inventoryTable">
+      </div>
+      <div class="controls">
+        <fieldset class="radio-group" aria-label="Viability filter">
+          <label><input type="radio" name="viabilityFilterInventory" value="all" checked> Show All</label>
+          <label><input type="radio" name="viabilityFilterInventory" value="exclude0"> Exclude 0% Expected Viability</label>
+          <label><input type="radio" name="viabilityFilterInventory" value="only0"> Show Only 0% Expected Viability</label>
+        </fieldset>
       </div>
       <div class="table-scroll"><table id="inventoryTable"></table></div>
       <p class="row-count" id="inventoryCount"></p>
@@ -391,20 +399,19 @@ function applyFilters() {
         )
       );
     }
-    if (targetId === "accessionTable") {
-      const viabilityFilter = document.querySelector('input[name="viabilityFilter"]:checked').value;
-      if (viabilityFilter === "exclude0") {
-        filtered = filtered.filter(row => Math.round(row["EstimatedViability_2026"] || 0) !== 0);
-      } else if (viabilityFilter === "only0") {
-        filtered = filtered.filter(row => Math.round(row["EstimatedViability_2026"] || 0) === 0);
-      }
+    const radioName = targetId === "accessionTable" ? "viabilityFilterAccession" : "viabilityFilterInventory";
+    const viabilityFilter = document.querySelector(`input[name="${radioName}"]:checked`).value;
+    if (viabilityFilter === "exclude0") {
+      filtered = filtered.filter(row => Math.round(row["EstimatedViability_2026"] || 0) !== 0);
+    } else if (viabilityFilter === "only0") {
+      filtered = filtered.filter(row => Math.round(row["EstimatedViability_2026"] || 0) === 0);
     }
     ctl.setRows(filtered);
     document.getElementById(targetId === "accessionTable" ? "accessionCount" : "inventoryCount").textContent = filtered.length + " rows";
   });
 }
 document.querySelectorAll(".filter-input").forEach(el => el.addEventListener("input", applyFilters));
-document.querySelectorAll('input[name="viabilityFilter"]').forEach(el => el.addEventListener("change", applyFilters));
+document.querySelectorAll('.radio-group input[type="radio"]').forEach(el => el.addEventListener("change", applyFilters));
 
 // ---------- view toggle ----------
 document.querySelectorAll(".view-tab").forEach(tab => {
