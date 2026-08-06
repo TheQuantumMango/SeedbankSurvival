@@ -153,6 +153,25 @@ def drop_placeholder_rows(df: pd.DataFrame) -> pd.DataFrame:
 
 _TYPE_LETTER_TO_LABEL = {"o": "ORIGINAL", "i": "INCREASE"}
 
+_LOCATION_SECTION_COLUMNS = [
+    "Location Section 1", "Location Section 2", "Location Section 3", "Location Section 4",
+]
+
+
+def _join_location(df: pd.DataFrame) -> pd.Series:
+    """Comma-join Location Section 1-4 into one human-readable location string.
+
+    Empty/missing sections are skipped rather than rendered as blank
+    placeholders -- verified against real data that most rows only have 1-2
+    of the 4 sections filled in (Section 4 in particular is filled on <4% of
+    rows), so a fixed-width join would be mostly commas.
+    """
+    sections = df[_LOCATION_SECTION_COLUMNS]
+    return sections.apply(
+        lambda row: ", ".join(str(v) for v in row if pd.notna(v) and str(v).strip() != ""),
+        axis=1,
+    )
+
 
 @dataclass(frozen=True)
 class AdaptedGrinExport:
@@ -279,6 +298,8 @@ def adapt_raw_export(
             "Origin": df["Origin"].to_numpy(),
             "Type": [_TYPE_LETTER_TO_LABEL.get(letter) for letter in letters],
             "EstTotalSeed": df["Quantity On Hand"].to_numpy(),
+            "MaintenanceSite": df["Inventory Maintenance Site"].to_numpy(),
+            "Location": _join_location(df).to_numpy(),
         }
     )
     df_primary["SpeciesGroup"] = df_primary["Species"].apply(_species_group)

@@ -27,6 +27,11 @@ def _raw_export_row(**overrides):
         "Tested Date": pd.Timestamp("2003-04-22"),
         "Origin": "Turkey",
         "Quantity On Hand": 1000.0,
+        "Inventory Maintenance Site": "W6",
+        "Location Section 1": "minus20",
+        "Location Section 2": None,
+        "Location Section 3": None,
+        "Location Section 4": None,
     }
     row.update(overrides)
     return row
@@ -231,6 +236,42 @@ def test_adapt_raw_export_leaves_seed_age_nan_for_unparseable_suffix():
     row = result.df_primary.iloc[0]
     assert pd.isna(row["SeedAge"])
     assert pd.isna(row["AgeAtTest"])
+
+
+def test_adapt_raw_export_carries_maintenance_site():
+    df_raw = pd.DataFrame([_raw_export_row(**{"Inventory Maintenance Site": "NLGRP"})])
+    result = adapt_raw_export(df_raw, as_of_year=2026, genera="Astragalus")
+    assert result.df_primary.iloc[0]["MaintenanceSite"] == "NLGRP"
+
+
+def test_adapt_raw_export_joins_location_sections_skipping_blanks():
+    df_raw = pd.DataFrame([_raw_export_row(**{
+        "Location Section 1": "minus20",
+        "Location Section 2": None,
+        "Location Section 3": "C09",
+        "Location Section 4": "",
+    })])
+    result = adapt_raw_export(df_raw, as_of_year=2026, genera="Astragalus")
+    assert result.df_primary.iloc[0]["Location"] == "minus20, C09"
+
+
+def test_adapt_raw_export_location_is_empty_string_when_all_sections_blank():
+    df_raw = pd.DataFrame([_raw_export_row(**{
+        "Location Section 1": None, "Location Section 2": None,
+        "Location Section 3": None, "Location Section 4": None,
+    })])
+    result = adapt_raw_export(df_raw, as_of_year=2026, genera="Astragalus")
+    assert result.df_primary.iloc[0]["Location"] == ""
+
+
+def test_adapt_raw_export_location_join_handles_non_string_section_values():
+    # Real data has integer-valued sections (e.g. Location Section 2 == 4).
+    df_raw = pd.DataFrame([_raw_export_row(**{
+        "Location Section 1": "R040", "Location Section 2": 4,
+        "Location Section 3": "C09", "Location Section 4": None,
+    })])
+    result = adapt_raw_export(df_raw, as_of_year=2026, genera="Astragalus")
+    assert result.df_primary.iloc[0]["Location"] == "R040, 4, C09"
 
 
 def test_build_sibling_year_index_groups_by_accession_and_sorts():
