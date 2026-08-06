@@ -185,6 +185,32 @@ def test_build_report_maintenance_site_used_for_filtering_not_displayed(report_i
     assert "MaintenanceSite" not in columns_segment
 
 
+def test_build_report_has_column_visibility_toggle_on_both_views(report_inputs):
+    html = build_report(**report_inputs)
+    assert 'data-menu="colMenuAccession"' in html
+    assert 'data-menu="colMenuInventory"' in html
+    assert 'id="colMenuAccession"' in html
+    assert 'id="colMenuInventory"' in html
+    assert "buildColumnMenu" in html
+
+
+def test_build_report_column_menu_hidden_rule_beats_display_flex(report_inputs):
+    # Regression test: `.col-menu { display: flex; ... }` alone silently beats
+    # the browser's built-in `[hidden] { display: none }` rule at equal
+    # specificity (this stylesheet loads after the UA one), so the menu
+    # rendered open by default on page load -- caught via live browser
+    # verification, not visible from a static HTML diff alone. An explicit
+    # `.col-menu[hidden] { display: none; }` rule is required to win back.
+    html = build_report(**report_inputs)
+    assert ".col-menu[hidden]" in html
+
+
+def test_build_report_has_column_resize_handles(report_inputs):
+    html = build_report(**report_inputs)
+    assert "col-resize-handle" in html
+    assert "tableLayout" in html
+
+
 def test_build_report_includes_status_column_on_both_views(report_inputs):
     inputs = dict(report_inputs)
     inputs["accession_table"] = pd.DataFrame([_table_row(Status="Backup germplasm")])[_COLUMNS + _EXTRA_ROW_COLUMNS]

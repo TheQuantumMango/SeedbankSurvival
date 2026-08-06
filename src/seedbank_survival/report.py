@@ -245,6 +245,28 @@ h1 { font-size: 24px; font-weight: 600; letter-spacing: -0.01em; margin: 0 0 6px
   display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-secondary);
   white-space: nowrap; cursor: pointer;
 }
+.col-toggle { position: relative; }
+.col-toggle-btn {
+  font: inherit; font-size: 13px; font-weight: 600; color: var(--text-secondary);
+  background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px;
+  padding: 7px 12px; cursor: pointer; white-space: nowrap;
+}
+.col-toggle-btn:hover { color: var(--text-primary); }
+.col-menu {
+  position: absolute; top: calc(100% + 6px); right: 0; z-index: 5;
+  display: flex; flex-direction: column; gap: 5px; min-width: 180px;
+  max-height: 280px; overflow-y: auto;
+  background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px;
+  padding: 10px 12px; box-shadow: 0 6px 18px rgba(0,0,0,0.18);
+}
+/* `display: flex` above otherwise beats the UA [hidden] rule at equal
+   specificity, since this stylesheet loads after the UA one -- without this,
+   the menu would render open by default instead of only on click. */
+.col-menu[hidden] { display: none; }
+.col-menu label {
+  display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--text-secondary);
+  white-space: nowrap; cursor: pointer;
+}
 .sort-note {
   font-size: 12px; color: var(--accent); margin: 0 0 14px; font-weight: 600;
 }
@@ -257,15 +279,28 @@ h1 { font-size: 24px; font-weight: 600; letter-spacing: -0.01em; margin: 0 0 6px
   border-radius: 8px;
 }
 table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
-th, td { text-align: left; padding: 7px 10px; white-space: nowrap; }
-th {
-  font-weight: 600; color: var(--text-secondary); cursor: pointer; user-select: none;
-  border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--surface-1);
+th, td {
+  text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-th:hover { color: var(--text-primary); }
+th {
+  font-weight: 600; color: var(--text-secondary);
+  border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--surface-1);
+  padding: 0;
+}
+.th-label {
+  display: block; cursor: pointer; user-select: none;
+  padding: 7px 16px 7px 10px; overflow: hidden; text-overflow: ellipsis;
+}
+.th-label:hover { color: var(--text-primary); }
 th .arrow { opacity: 0.4; margin-left: 3px; }
-td { border-bottom: 1px solid var(--border); font-variant-numeric: tabular-nums; }
+td { padding: 7px 10px; border-bottom: 1px solid var(--border); font-variant-numeric: tabular-nums; }
 tbody tr:hover { background: var(--row-hover); }
+
+.col-resize-handle {
+  position: absolute; top: 0; right: 0; width: 7px; height: 100%; cursor: col-resize;
+}
+.col-resize-handle:hover, .col-resize-handle.resizing { background: var(--accent); opacity: 0.35; }
+table.resizing, table.resizing * { cursor: col-resize !important; user-select: none !important; }
 
 .chart-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 18px; }
 .chart-card { background: var(--surface-2); border-radius: 10px; padding: 14px 16px 10px; }
@@ -316,6 +351,10 @@ svg.chart { display: block; width: 100%; height: auto; overflow: visible; }
           <label><input type="radio" name="viabilityFilterAccession" value="only0"> Show Only 0% Expected Viability</label>
         </fieldset>
         <label class="checkbox-label"><input type="checkbox" id="onSiteAccession"> On-site only (W6, Pullman)</label>
+        <div class="col-toggle">
+          <button type="button" class="col-toggle-btn" data-menu="colMenuAccession">Columns &#9662;</button>
+          <div class="col-menu" id="colMenuAccession" hidden></div>
+        </div>
       </div>
       <div class="table-scroll"><table id="accessionTable"></table></div>
       <p class="row-count" id="accessionCount"></p>
@@ -335,6 +374,10 @@ svg.chart { display: block; width: 100%; height: auto; overflow: visible; }
           <label><input type="radio" name="viabilityFilterInventory" value="only0"> Show Only 0% Expected Viability</label>
         </fieldset>
         <label class="checkbox-label"><input type="checkbox" id="onSiteInventory"> On-site only (W6, Pullman)</label>
+        <div class="col-toggle">
+          <button type="button" class="col-toggle-btn" data-menu="colMenuInventory">Columns &#9662;</button>
+          <div class="col-menu" id="colMenuInventory" hidden></div>
+        </div>
       </div>
       <div class="table-scroll"><table id="inventoryTable"></table></div>
       <p class="row-count" id="inventoryCount"></p>
@@ -357,21 +400,70 @@ document.getElementById("reportMeta").textContent =
   `${DATA.counts.accession} accessions · ${DATA.counts.inventory} packets · genus-wide R²=${DATA.counts.globalR2} (n=${DATA.counts.globalN})`;
 
 // ---------- tables ----------
+// Columns start auto-sized (matching the old plain-table look). Right after
+// the first paint, natural widths are measured and locked into a <colgroup>
+// under table-layout:fixed -- from then on, resizing (drag the handle at a
+// header's right edge) and hide/show (the Columns menu) both just rebuild
+// that colgroup, so neither one fights the browser reflowing column widths
+// from whatever happens to be on screen after a sort/filter.
 function renderTable(tableId, rows, columns) {
   const table = document.getElementById(tableId);
   let sortCol = null, sortDir = 1;
+  const colWidths = new Map();
+  const hiddenCols = new Set();
+  let measured = false;
+
+  function visibleColumns() {
+    return columns.filter(([key]) => !hiddenCols.has(key));
+  }
+
+  function startResize(e, key, th) {
+    e.preventDefault();
+    e.stopPropagation();
+    const startX = e.clientX;
+    const startWidth = th.getBoundingClientRect().width;
+    const handle = e.target;
+    table.classList.add("resizing");
+    handle.classList.add("resizing");
+
+    function onMove(ev) {
+      const width = Math.max(48, startWidth + (ev.clientX - startX));
+      colWidths.set(key, width);
+      const col = table.querySelector(`col[data-key="${CSS.escape(key)}"]`);
+      if (col) col.style.width = width + "px";
+    }
+    function onUp() {
+      table.classList.remove("resizing");
+      handle.classList.remove("resizing");
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+    }
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  }
 
   function draw(data) {
-    let head = "<thead><tr>" + columns.map(([key, label]) =>
-      `<th data-key="${key}">${label}<span class="arrow">${sortCol === key ? (sortDir > 0 ? "↑" : "↓") : ""}</span></th>`
+    const cols = visibleColumns();
+    let colgroup = "<colgroup>" + cols.map(([key]) => {
+      const w = colWidths.get(key);
+      return `<col data-key="${key}"${w ? ` style="width:${w}px"` : ""}>`;
+    }).join("") + "</colgroup>";
+    let head = "<thead><tr>" + cols.map(([key, label]) =>
+      `<th data-key="${key}"><span class="th-label" data-key="${key}">${label}` +
+      `<span class="arrow">${sortCol === key ? (sortDir > 0 ? "↑" : "↓") : ""}</span></span>` +
+      `<span class="col-resize-handle" data-key="${key}"></span></th>`
     ).join("") + "</tr></thead>";
     let body = "<tbody>" + data.map(row =>
-      "<tr>" + columns.map(([key]) => `<td>${row[key] === null || row[key] === undefined ? "" : row[key]}</td>`).join("") + "</tr>"
+      "<tr>" + cols.map(([key]) => {
+        const v = row[key] === null || row[key] === undefined ? "" : row[key];
+        return `<td title="${String(v).replace(/"/g, "&quot;")}">${v}</td>`;
+      }).join("") + "</tr>"
     ).join("") + "</tbody>";
-    table.innerHTML = head + body;
-    table.querySelectorAll("th").forEach(th => {
-      th.addEventListener("click", () => {
-        const key = th.dataset.key;
+    table.innerHTML = colgroup + head + body;
+
+    table.querySelectorAll(".th-label").forEach(label => {
+      label.addEventListener("click", () => {
+        const key = label.dataset.key;
         sortDir = (sortCol === key) ? -sortDir : 1;
         sortCol = key;
         state.rows = state.rows.slice().sort((a, b) => {
@@ -384,12 +476,35 @@ function renderTable(tableId, rows, columns) {
         draw(state.rows);
       });
     });
+    table.querySelectorAll(".col-resize-handle").forEach(handle => {
+      handle.addEventListener("mousedown", (e) => startResize(e, handle.dataset.key, handle.closest("th")));
+    });
+
+    if (!measured) {
+      measured = true;
+      table.querySelectorAll("thead th").forEach(th => {
+        colWidths.set(th.dataset.key, th.getBoundingClientRect().width);
+      });
+      table.style.tableLayout = "fixed";
+      draw(data);
+    }
   }
 
   const state = { rows: rows };
   draw(state.rows);
   return {
     setRows(newRows) { state.rows = newRows; draw(state.rows); },
+    buildColumnMenu(menuEl) {
+      menuEl.innerHTML = columns.map(([key, label]) =>
+        `<label><input type="checkbox" data-key="${key}" ${hiddenCols.has(key) ? "" : "checked"}> ${label}</label>`
+      ).join("");
+      menuEl.querySelectorAll("input").forEach(cb => {
+        cb.addEventListener("change", () => {
+          if (cb.checked) hiddenCols.delete(cb.dataset.key); else hiddenCols.add(cb.dataset.key);
+          draw(state.rows);
+        });
+      });
+    },
   };
 }
 
@@ -397,6 +512,23 @@ const accessionTableCtl = renderTable("accessionTable", DATA.accessionRows, DATA
 const inventoryTableCtl = renderTable("inventoryTable", DATA.inventoryRows, DATA.columns);
 document.getElementById("accessionCount").textContent = DATA.accessionRows.length + " rows";
 document.getElementById("inventoryCount").textContent = DATA.inventoryRows.length + " rows";
+
+accessionTableCtl.buildColumnMenu(document.getElementById("colMenuAccession"));
+inventoryTableCtl.buildColumnMenu(document.getElementById("colMenuInventory"));
+document.querySelectorAll(".col-toggle-btn").forEach(btn => {
+  btn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const menu = document.getElementById(btn.dataset.menu);
+    const wasHidden = menu.hidden;
+    document.querySelectorAll(".col-menu").forEach(m => { m.hidden = true; });
+    menu.hidden = !wasHidden;
+  });
+});
+document.addEventListener("click", (e) => {
+  if (!e.target.closest(".col-toggle")) {
+    document.querySelectorAll(".col-menu").forEach(m => { m.hidden = true; });
+  }
+});
 
 function applyFilters() {
   document.querySelectorAll(".filter-input").forEach(input => {
