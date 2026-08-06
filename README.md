@@ -1,6 +1,6 @@
 # SeedbankSurvival
 
-A seedbank viability assessment tool: fits regression-based deterioration curves
+A seedbank viability assessment tool: fits quadratic deterioration curves
 (genus-wide and per-species, falling back to per-origin where species data is
 sparse) on GRIN-Global accession data, and produces two views of the result --
 which accessions to prioritize for regeneration, and which physical packets to
@@ -198,9 +198,53 @@ divergence from it rather than just re-testing current behavior in isolation:
   few points (e.g. n=3, 1 residual degree of freedom) routinely has a
   deceptively high R² by chance; confirmed against real data that most
   Origin-tier models winning on R² alone had a slope statistically
-  indistinguishable from zero (95% CI spanning 0). `SlopeModel` now also
-  carries `slope_pvalue`, and a tier must be significant (p<0.05) *in
-  addition to* beating Global's R² to be trusted over it.
+  indistinguishable from zero (95% CI spanning 0). `SlopeModel` (now
+  `CurveModel`, see below) also carries `overall_pvalue`, and a tier must be
+  significant (p<0.05) *in addition to* beating Global's R² to be trusted
+  over it.
+- **Linear deterioration curve, and an untested-viability sentinel counted as
+  real data** -- two related fixes. Binning real Astragalus data by age
+  showed viability holding roughly flat for ~40 years, then dropping sharply
+  -- a shape a straight line can't represent. Checked several standard
+  seed-science alternatives (probit-linear/Ellis-Roberts, logit-linear,
+  exponential decay) against real data, compared fairly on the original
+  percentage scale (not the transformed one, which isn't directly
+  comparable) -- all of them fit *worse* than a straight line; only a
+  quadratic (`Viability ~ AgeAtTest + AgeAtTest²`, now `deterioration.py`'s
+  `CurveModel`, replacing `SlopeModel`) improved on it. While comparing
+  forms, also found `Percent Viable == -1.0` (never any other negative
+  value) is a GRIN sentinel for "no valid test," not a real -1% measurement
+  -- was being fit as real data by every model, linear included. Any
+  negative Percent Viable is now treated as untested at ingestion.
+  `fit_group_models`'s `min_n` default rose from 3 to 4: a quadratic fit
+  needs 3 parameters, so n=3 has zero residual degrees of freedom and is
+  always a trivial, meaningless r2=1.0 fit regardless of the data.
+- **Extrapolating from the population curve instead of an inventory's own
+  test result** -- `PredictedViability_2026` was always computed from a
+  tier's fitted intercept (the population-average starting point), even for
+  a packet with its own real measured Viability. A row with its own
+  Viability + AgeAtTest now extrapolates from that specific measurement by
+  however much the selected tier's curve itself changes over the interval,
+  instead of the population's average starting point. `PrimaryReason` gets
+  `"Tested at low viability"` when that real result is itself ≤30%, to
+  distinguish a lab-confirmed low result from a merely predicted one.
+- **"Low germination" with no recorded percentage** -- a Status (or
+  free-text note) documenting a known concern like this shouldn't quietly
+  fall back to the tier's average-case curve just because no exact number
+  was written down. Such rows now get an assumed 10% viability, anchored to
+  the lot's own year (`ViabilityAssumed=True`, `PrimaryReason` gets
+  `"Assumed low germination, no test data"`) -- excluded from curve-fitting
+  itself so the assumption can't bias the population model. No effect on the
+  current real Astragalus data (every such row there already has a real
+  percentage recorded), but guards against it for this or another export.
+
+**Known limitation of the quadratic curve**: with very little data (the
+n=4 floor), a fitted parabola can take on a visually implausible shape
+outside the tight cluster of the actual points -- checked against real
+data, this does happen for a handful of the smallest significant groups.
+The significance gate still screens out non-trending ones; it doesn't
+guarantee a *plausible-shaped* one. Not fixed here -- flagged as a
+follow-up if it turns out to matter in practice.
 - **Ignoring an inventory's own test result** -- `PredictedViability_2026`
   was always computed from a tier's fitted intercept (the *population*
   average starting point), even for a packet with its own real measured
