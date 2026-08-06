@@ -22,11 +22,13 @@ from datetime import date
 from pathlib import Path
 
 from . import data_prep
-from .deterioration import fit_global_model, fit_group_models
+from .deterioration import ModelKind, fit_global_model, fit_group_models
 from .grin_import import adapt_raw_export, assemble_model_dataset, list_genera
 from .hierarchical import predict_hierarchical
 from .priority import build_priority_table
-from .report import build_report
+from .report import ModelReportData, build_report
+
+_ALL_MODEL_KINDS: tuple[ModelKind, ...] = ("quadratic", "weibull", "breakpoint")
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -59,10 +61,12 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Directory to write accession_view.csv / inventory_view.csv / report.html into (default: current directory)",
     )
     parser.add_argument(
-        "--model", choices=["quadratic", "weibull", "breakpoint"], default="quadratic",
-        help="Deterioration curve form to fit (default: quadratic). "
-             "weibull and breakpoint are guaranteed non-increasing with age; "
-             "quadratic isn't but is sometimes the better fit -- see README.",
+        "--model", choices=list(_ALL_MODEL_KINDS), default="quadratic",
+        help="Deterioration curve form for the CSVs and the report's initial view "
+             "(default: quadratic). All three are fit regardless and switchable live "
+             "in the report itself -- weibull and breakpoint are guaranteed "
+             "non-increasing with age; quadratic isn't but is sometimes the better "
+             "fit -- see README.",
     )
     return parser
 
@@ -108,27 +112,51 @@ def run(args: argparse.Namespace) -> int:
     df_ranking = data_prep.build_ranking_dataset(df_primary_clean)
     df_inventory = data_prep.build_inventory_view(df_primary_clean)
 
-    try:
-        global_model = fit_global_model(df_model, args.model)
-    except RuntimeError as exc:
-        print(f"error: {exc}", file=sys.stderr)
+    # Fit all three curve kinds, not just --model: the report embeds every
+    # one that succeeds and lets a curator switch between them live in the
+    # browser, no server round-trip. --model only picks which kind's table
+    # goes to the plain CSVs (which can't be interactive) and which one the
+    # report shows first. A kind that fails to converge (weibull only --
+    # quadratic and breakpoint can't fail this way) is skipped with a
+    # warning rather than aborting the whole run, as long as at least one
+    # other kind succeeds.
+    models: dict[ModelKind, ModelReportData] = {}
+    for kind in _ALL_MODEL_KINDS:
+        try:
+            global_model = fit_global_model(df_model, kind)
+        except RuntimeError as exc:
+            print(f"warning: skipping --model {kind}: {exc}", file=sys.stderr)
+            continue
+        species_models = fit_group_models(df_model, "SpeciesGroup", kind)
+        origin_models = fit_group_models(df_model, "Origin", kind)
+
+        kind_ranking = predict_hierarchical(df_ranking, species_models, origin_models, global_model)
+        kind_inventory = predict_hierarchical(df_inventory, species_models, origin_models, global_model)
+
+        # Both views export every qualifying row -- never an artificial
+        # top-N cap here, since the whole point is not to silently drop
+        # real inventory. The HTML report's checkbox/filters, not a CLI
+        # flag, are how a curator narrows what they're looking at.
+        models[kind] = ModelReportData(
+            accession_table=build_priority_table(
+                kind_ranking, species_models, origin_models, global_model, top_n=len(kind_ranking)
+            ),
+            inventory_table=build_priority_table(
+                kind_inventory, species_models, origin_models, global_model, top_n=len(kind_inventory)
+            ),
+            df_model=df_model,
+            species_models=species_models,
+            origin_models=origin_models,
+            global_model=global_model,
+        )
+
+    if not models:
+        print("error: every deterioration curve kind failed to fit -- can't build a report", file=sys.stderr)
         return 1
-    species_models = fit_group_models(df_model, "SpeciesGroup", args.model)
-    origin_models = fit_group_models(df_model, "Origin", args.model)
 
-    df_ranking = predict_hierarchical(df_ranking, species_models, origin_models, global_model)
-    df_inventory = predict_hierarchical(df_inventory, species_models, origin_models, global_model)
-
-    # Both views export every qualifying row -- never an artificial top-N cap
-    # here, since the whole point is not to silently drop real inventory. The
-    # HTML report's checkbox/filters, not a CLI flag, are how a curator narrows
-    # what they're looking at.
-    accession_table = build_priority_table(
-        df_ranking, species_models, origin_models, global_model, top_n=len(df_ranking)
-    )
-    inventory_table = build_priority_table(
-        df_inventory, species_models, origin_models, global_model, top_n=len(df_inventory)
-    )
+    csv_kind = args.model if args.model in models else next(iter(models))
+    accession_table = models[csv_kind].accession_table
+    inventory_table = models[csv_kind].inventory_table
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
     accession_csv = args.out_dir / "accession_view.csv"
@@ -139,18 +167,14 @@ def run(args: argparse.Namespace) -> int:
     inventory_table.to_csv(inventory_csv, index=False)
 
     html = build_report(
-        accession_table,
-        inventory_table,
-        df_model,
-        species_models,
-        origin_models,
-        global_model,
+        models,
         genera=args.genera,
         as_of_year=as_of_year,
+        default_model=args.model,
     )
     report_path.write_text(html, encoding="utf-8")
 
-    print(f"Model: {args.model}")
+    print(f"Models fit: {', '.join(models)} (CSVs use {csv_kind})")
     print(f"Accession view: {len(accession_table)} rows -> {accession_csv}")
     print(f"Inventory view: {len(inventory_table)} rows -> {inventory_csv}")
     print(f"Report: {report_path}")

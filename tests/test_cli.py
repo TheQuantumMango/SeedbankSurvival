@@ -170,14 +170,16 @@ def test_each_model_kind_runs_end_to_end(tmp_path, three_species_rows, model_kin
     assert accession_csv["EstimatedViability_2026"].between(0, 100).all()
 
 
-def test_prints_which_model_was_used(tmp_path, capsys, three_species_rows):
+def test_prints_which_models_were_fit_and_which_backs_the_csvs(tmp_path, capsys, three_species_rows):
     inventory_path = _write_inventory_xlsx(tmp_path, three_species_rows)
     out_dir = tmp_path / "out"
     args = _base_args(inventory=inventory_path, genera=["Astragalus"], out_dir=out_dir, model="weibull")
 
     run(args)
 
-    assert "Model: weibull" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "quadratic" in out and "weibull" in out and "breakpoint" in out
+    assert "CSVs use weibull" in out
 
 
 def test_defaults_to_quadratic_model():
