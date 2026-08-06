@@ -3,6 +3,7 @@
     seedbank-survival --inventory PATH [--accessions PATH]
                        (--genus NAME [--genus NAME ...] | --list-genera)
                        [--as-of-year YEAR] [--out-dir PATH]
+                       [--model {quadratic,weibull,breakpoint}]
 
 Raw-GRIN-only for now -- the reformatted CSV/XLSX path stays available
 programmatically (data_prep.load_accessions, etc.) but isn't exposed here.
@@ -57,6 +58,12 @@ def _build_parser() -> argparse.ArgumentParser:
         "--out-dir", type=Path, default=Path("."),
         help="Directory to write accession_view.csv / inventory_view.csv / report.html into (default: current directory)",
     )
+    parser.add_argument(
+        "--model", choices=["quadratic", "weibull", "breakpoint"], default="quadratic",
+        help="Deterioration curve form to fit (default: quadratic). "
+             "weibull and breakpoint are guaranteed non-increasing with age; "
+             "quadratic isn't but is sometimes the better fit -- see README.",
+    )
     return parser
 
 
@@ -101,9 +108,13 @@ def run(args: argparse.Namespace) -> int:
     df_ranking = data_prep.build_ranking_dataset(df_primary_clean)
     df_inventory = data_prep.build_inventory_view(df_primary_clean)
 
-    global_model = fit_global_model(df_model)
-    species_models = fit_group_models(df_model, "SpeciesGroup")
-    origin_models = fit_group_models(df_model, "Origin")
+    try:
+        global_model = fit_global_model(df_model, args.model)
+    except RuntimeError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    species_models = fit_group_models(df_model, "SpeciesGroup", args.model)
+    origin_models = fit_group_models(df_model, "Origin", args.model)
 
     df_ranking = predict_hierarchical(df_ranking, species_models, origin_models, global_model)
     df_inventory = predict_hierarchical(df_inventory, species_models, origin_models, global_model)
@@ -139,6 +150,7 @@ def run(args: argparse.Namespace) -> int:
     )
     report_path.write_text(html, encoding="utf-8")
 
+    print(f"Model: {args.model}")
     print(f"Accession view: {len(accession_table)} rows -> {accession_csv}")
     print(f"Inventory view: {len(inventory_table)} rows -> {inventory_csv}")
     print(f"Report: {report_path}")

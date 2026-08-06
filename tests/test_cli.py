@@ -47,6 +47,7 @@ def _base_args(**overrides) -> argparse.Namespace:
         "list_genera": False,
         "as_of_year": 2026,
         "out_dir": None,
+        "model": "quadratic",
     }
     defaults.update(overrides)
     return argparse.Namespace(**defaults)
@@ -54,10 +55,10 @@ def _base_args(**overrides) -> argparse.Namespace:
 
 @pytest.fixture
 def three_species_rows():
-    # Enough rows for a real Species-tier model (min_n=4 -- a quadratic fit
-    # needs at least 1 residual degree of freedom, see deterioration.py's
-    # CurveModel) so the pipeline has something non-trivial to fit and
-    # predict for. Lot years (from the suffix) must precede the default
+    # Enough rows for a real Species-tier model (min_n=4 -- every curve kind
+    # in deterioration.py has 3 parameters and needs at least 1 residual
+    # degree of freedom) so the pipeline has something non-trivial to fit
+    # and predict for. Lot years (from the suffix) must precede the default
     # Tested Date's year (2003) so AgeAtTest = ViabilityYear - lot_year
     # comes out positive. Name kept from when min_n was 3; not worth an
     # unrelated rename.
@@ -153,3 +154,43 @@ def test_accessions_file_is_optional(tmp_path, three_species_rows):
 
     assert exit_code == 0
     assert (out_dir / "report.html").exists()
+
+
+@pytest.mark.parametrize("model_kind", ["quadratic", "weibull", "breakpoint"])
+def test_each_model_kind_runs_end_to_end(tmp_path, three_species_rows, model_kind):
+    inventory_path = _write_inventory_xlsx(tmp_path, three_species_rows)
+    out_dir = tmp_path / "out"
+    args = _base_args(inventory=inventory_path, genera=["Astragalus"], out_dir=out_dir, model=model_kind)
+
+    exit_code = run(args)
+
+    assert exit_code == 0
+    accession_csv = pd.read_csv(out_dir / "accession_view.csv")
+    assert len(accession_csv) == 4
+    assert accession_csv["EstimatedViability_2026"].between(0, 100).all()
+
+
+def test_prints_which_model_was_used(tmp_path, capsys, three_species_rows):
+    inventory_path = _write_inventory_xlsx(tmp_path, three_species_rows)
+    out_dir = tmp_path / "out"
+    args = _base_args(inventory=inventory_path, genera=["Astragalus"], out_dir=out_dir, model="weibull")
+
+    run(args)
+
+    assert "Model: weibull" in capsys.readouterr().out
+
+
+def test_defaults_to_quadratic_model():
+    from seedbank_survival.cli import _build_parser
+
+    parser = _build_parser()
+    args = parser.parse_args(["--inventory", "x.xlsx", "-g", "Astragalus"])
+    assert args.model == "quadratic"
+
+
+def test_rejects_unknown_model_choice(capsys):
+    from seedbank_survival.cli import _build_parser
+
+    parser = _build_parser()
+    with pytest.raises(SystemExit):
+        parser.parse_args(["--inventory", "x.xlsx", "-g", "Astragalus", "--model", "bogus"])
