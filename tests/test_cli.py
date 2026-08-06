@@ -20,6 +20,11 @@ def _inventory_row(**overrides):
         "Tested Date": pd.Timestamp("2003-04-22"),
         "Origin": "Turkey",
         "Quantity On Hand": 1000.0,
+        "Inventory Maintenance Site": "W6",
+        "Location Section 1": "minus20",
+        "Location Section 2": None,
+        "Location Section 3": None,
+        "Location Section 4": None,
     }
     row.update(overrides)
     return row
@@ -106,6 +111,10 @@ def test_happy_path_writes_all_three_outputs(tmp_path, three_species_rows):
     accession_csv = pd.read_csv(out_dir / "accession_view.csv")
     assert len(accession_csv) == 3
     assert "ModelConfidence" in accession_csv.columns
+    assert "Location" in accession_csv.columns
+    assert "MaintenanceSite" in accession_csv.columns
+    assert (accession_csv["MaintenanceSite"] == "W6").all()
+    assert (accession_csv["Location"] == "minus20").all()
 
 
 def test_as_of_year_defaults_to_current_year_when_omitted(tmp_path, three_species_rows, monkeypatch):
