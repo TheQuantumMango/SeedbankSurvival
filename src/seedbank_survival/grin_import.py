@@ -294,6 +294,18 @@ def adapt_raw_export(
     df = filter_to_genus(df_raw, genera)
     df = drop_placeholder_rows(df)
 
+    # A negative Percent Viable is never a real measurement -- percent
+    # viable is bounded [0, 100] by definition. Verified against real data
+    # this is always exactly -1.0 (a GRIN sentinel for "no valid test"),
+    # concentrated on "Backup germplasm"/"Critical backup germplasm" rows,
+    # but treating it as "untested" for ANY negative value is the robust
+    # fix, not one keyed to that specific number. Done in-place, this early,
+    # so every downstream consumer of df["Percent Viable"] (borrowed-row
+    # resolution, low-germination imputation, df_primary itself) sees a
+    # clean value automatically -- there's no separate "raw" copy left to
+    # accidentally read instead.
+    df["Percent Viable"] = df["Percent Viable"].where(df["Percent Viable"] >= 0)
+
     parsed = df["Inventory Suffix"].apply(parse_inventory_suffix)
     lot_years = pd.Series([t[0] for t in parsed], index=df.index, dtype="float64")
     own_letters = [t[1] for t in parsed]

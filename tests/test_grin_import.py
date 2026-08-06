@@ -181,6 +181,41 @@ def test_drop_placeholder_rows_removes_double_star_type():
     assert result["Accession"].tolist() == ["A1", "A3"]
 
 
+def test_adapt_raw_export_treats_negative_percent_viable_as_untested():
+    # Real data: exactly -1.0, never another negative value -- a GRIN
+    # sentinel for "no valid test," concentrated on "Backup germplasm"/
+    # "Critical backup germplasm" rows. Fixing by ANY negative value (not
+    # hardcoded to -1.0 specifically) is the robust rule, since percent
+    # viable is bounded [0, 100] by definition.
+    df_raw = pd.DataFrame([_raw_export_row(**{
+        "Inventory Status": "Critical backup germplasm", "Percent Viable": -1.0,
+        "Tested Date": pd.Timestamp("2000-06-21"),
+    })])
+    result = adapt_raw_export(df_raw, as_of_year=2026, genera="Astragalus")
+    row = result.df_primary.iloc[0]
+
+    assert pd.isna(row["Viability"])
+
+
+def test_adapt_raw_export_negative_percent_viable_is_excluded_from_model_fitting():
+    from seedbank_survival.data_prep import build_model_dataset, clean_ages
+
+    df_raw = pd.DataFrame([_raw_export_row(**{
+        "Inventory Status": "Critical backup germplasm", "Percent Viable": -1.0,
+        "Tested Date": pd.Timestamp("2000-06-21"),
+    })])
+    result = adapt_raw_export(df_raw, as_of_year=2026, genera="Astragalus")
+    df_model = build_model_dataset(clean_ages(result.df_primary))
+
+    assert len(df_model) == 0
+
+
+def test_adapt_raw_export_leaves_a_real_positive_percent_viable_untouched():
+    df_raw = pd.DataFrame([_raw_export_row(**{"Percent Viable": 42.0})])
+    result = adapt_raw_export(df_raw, as_of_year=2026, genera="Astragalus")
+    assert result.df_primary.iloc[0]["Viability"] == 42.0
+
+
 def test_adapt_raw_export_computes_seed_age_and_age_at_test():
     df_raw = pd.DataFrame([_raw_export_row()])
     result = adapt_raw_export(df_raw, as_of_year=2026, genera="Astragalus")
