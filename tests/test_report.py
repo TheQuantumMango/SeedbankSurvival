@@ -3,12 +3,12 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from seedbank_survival.deterioration import CurveModel
+from seedbank_survival.deterioration import BreakpointCurve, QuadraticCurve, WeibullCurve
 from seedbank_survival.report import build_report
 
 
 def _curve(intercept, slope, n, r2, pvalue):
-    return CurveModel(intercept=intercept, linear_coef=slope, quad_coef=0.0, n=n, r2=r2, overall_pvalue=pvalue)
+    return QuadraticCurve(intercept=intercept, linear_coef=slope, quad_coef=0.0, n=n, r2=r2, overall_pvalue=pvalue)
 
 _COLUMNS = [
     "Accession", "Suffix", "Status", "Species", "Origin", "SeedAge", "PrimaryReason",
@@ -223,3 +223,39 @@ def test_build_report_includes_status_column_on_both_views(report_inputs):
     assert '"Status"' in html
     assert "Backup germplasm" in html
     assert "Exhausted supply" in html
+
+
+def test_build_report_renders_weibull_curve_payload(report_inputs):
+    inputs = dict(report_inputs)
+    inputs["global_model"] = WeibullCurve(v0=90, lam=20, k=1.5, n=50, r2=0.4, overall_pvalue=0.01)
+    inputs["species_models"] = {}
+    html = build_report(**inputs)
+    assert '"kind": "weibull"' in html
+    assert '"v0": 90' in html
+    assert '"lam": 20' in html
+
+
+def test_build_report_renders_breakpoint_curve_payload(report_inputs):
+    inputs = dict(report_inputs)
+    inputs["global_model"] = BreakpointCurve(t0=25, plateau=85, slope=-3, n=50, r2=0.4, overall_pvalue=0.01)
+    inputs["species_models"] = {}
+    html = build_report(**inputs)
+    assert '"kind": "breakpoint"' in html
+    assert '"t0": 25' in html
+    assert '"plateau": 85' in html
+
+
+def test_build_report_quadratic_payload_tagged_with_kind(report_inputs):
+    html = build_report(**report_inputs)
+    assert '"kind": "quadratic"' in html
+
+
+def test_build_report_can_mix_curve_kinds_across_tiers(report_inputs):
+    # Species (quadratic) and Global (weibull) can legitimately differ if a
+    # future feature lets each tier pick its own form -- today they're set
+    # uniformly by the CLI, but build_report itself makes no such assumption.
+    inputs = dict(report_inputs)
+    inputs["global_model"] = WeibullCurve(v0=90, lam=20, k=1.5, n=50, r2=0.1, overall_pvalue=0.5)
+    html = build_report(**inputs)
+    assert '"kind": "quadratic"' in html
+    assert '"kind": "weibull"' in html

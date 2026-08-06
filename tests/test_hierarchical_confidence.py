@@ -1,5 +1,7 @@
 """Confidence-weighted tier selection (hierarchical.predict_hierarchical). Uses
-hand-built CurveModel instances directly -- this behavior applies equally to
+hand-built QuadraticCurve instances directly (the logic tested here is
+curve-kind-agnostic -- it only relies on predict()/slope_at(), which every
+Curve implementation provides) -- this behavior applies equally to
 old-schema and raw-GRIN data, so it doesn't need either fixture.
 """
 from __future__ import annotations
@@ -8,7 +10,7 @@ import math
 
 import pandas as pd
 
-from seedbank_survival.deterioration import CurveModel
+from seedbank_survival.deterioration import QuadraticCurve
 from seedbank_survival.hierarchical import predict_hierarchical
 
 
@@ -19,7 +21,7 @@ def _df_ranking(**row):
 
 
 def _curve(intercept, linear_coef, n, r2, overall_pvalue, quad_coef=0.0):
-    return CurveModel(
+    return QuadraticCurve(
         intercept=intercept, linear_coef=linear_coef, quad_coef=quad_coef,
         n=n, r2=r2, overall_pvalue=overall_pvalue,
     )

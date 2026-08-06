@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from .deterioration import CurveModel
+from .deterioration import Curve
 
 _OUTPUT_COLUMNS = [
     "Accession",
@@ -46,10 +46,10 @@ _LOCATION_COLUMNS = ("MaintenanceSite", "Location")
 
 def _model_for_row(
     row: pd.Series,
-    species_models: dict[str, CurveModel],
-    origin_models: dict[str, CurveModel],
-    global_model: CurveModel,
-) -> CurveModel:
+    species_models: dict[str, Curve],
+    origin_models: dict[str, Curve],
+    global_model: Curve,
+) -> Curve:
     if row["ModelUsed"] == "Species":
         return species_models[row["Species"]]
     if row["ModelUsed"] == "Origin":
@@ -59,9 +59,9 @@ def _model_for_row(
 
 def estimate_years_to_zero(
     row: pd.Series,
-    species_models: dict[str, CurveModel],
-    origin_models: dict[str, CurveModel],
-    global_model: CurveModel,
+    species_models: dict[str, Curve],
+    origin_models: dict[str, Curve],
+    global_model: Curve,
 ) -> float:
     """Years until predicted viability reaches 0%, given the model tier that produced it.
 
@@ -86,9 +86,9 @@ def estimate_years_to_zero(
 
 def determine_primary_reason(
     row: pd.Series,
-    species_models: dict[str, CurveModel],
-    origin_models: dict[str, CurveModel],
-    global_model: CurveModel,
+    species_models: dict[str, Curve],
+    origin_models: dict[str, Curve],
+    global_model: Curve,
 ) -> str:
     """Human-readable summary of why an accession is flagged as regeneration priority."""
     reasons = []
@@ -135,9 +135,9 @@ def determine_primary_reason(
 
 def build_priority_table(
     df_ranking: pd.DataFrame,
-    species_models: dict[str, CurveModel],
-    origin_models: dict[str, CurveModel],
-    global_model: CurveModel,
+    species_models: dict[str, Curve],
+    origin_models: dict[str, Curve],
+    global_model: Curve,
     top_n: int = 50,
 ) -> pd.DataFrame:
     """The N lowest-predicted-viability accessions, with deterioration diagnostics attached.

@@ -3,14 +3,14 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from .deterioration import CurveModel
+from .deterioration import Curve
 
 
 def _predict_row(
     row: pd.Series,
-    species_models: dict[str, CurveModel],
-    origin_models: dict[str, CurveModel],
-    global_model: CurveModel,
+    species_models: dict[str, Curve],
+    origin_models: dict[str, Curve],
+    global_model: Curve,
 ) -> pd.Series:
     age = row["SeedAge"]
 
@@ -63,9 +63,9 @@ def _predict_row(
 
 def predict_hierarchical(
     df_ranking: pd.DataFrame,
-    species_models: dict[str, CurveModel],
-    origin_models: dict[str, CurveModel],
-    global_model: CurveModel,
+    species_models: dict[str, Curve],
+    origin_models: dict[str, Curve],
+    global_model: Curve,
 ) -> pd.DataFrame:
     """Predict current viability per accession.
 

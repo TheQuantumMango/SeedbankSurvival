@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 
 import pandas as pd
 
-from .deterioration import CurveModel
+from .deterioration import BreakpointCurve, Curve, QuadraticCurve, WeibullCurve
 
 _TABLE_COLUMNS = [
     ("Accession", "Accession"),
@@ -44,13 +44,13 @@ _REFERENCE_COLOR = "var(--series-ref)"
 
 def _select_charted_species(
     accession_table: pd.DataFrame,
-    species_models: dict[str, CurveModel],
+    species_models: dict[str, Curve],
     top_n_charts: int,
 ) -> list[str]:
     """Species that actually won the confidence comparison for >=1 row, ranked
     by how many accession-view rows use that tier, capped at top_n_charts.
 
-    A species with its own fitted CurveModel whose points all got overridden
+    A species with its own fitted Curve whose points all got overridden
     back to Global by the R^2/significance comparison does NOT get its own
     chart -- the charts would otherwise visually contradict
     ModelUsed/ModelConfidence.
@@ -60,15 +60,29 @@ def _select_charted_species(
     return [name for name in counts.index if name in species_models][:top_n_charts]
 
 
-def _curve_coeffs(model: CurveModel) -> dict:
-    return {"intercept": model.intercept, "linearCoef": model.linear_coef,
-            "quadCoef": model.quad_coef, "r2": model.r2, "n": model.n}
+def _curve_coeffs(model: Curve) -> dict:
+    """Serialize a fitted curve's parameters for the JS chart renderer.
+
+    Each curve kind carries different parameters -- "kind" tells the JS
+    side (buildChartSvg's evalCurve) which formula to evaluate; see there
+    for the matching math.
+    """
+    base = {"r2": model.r2, "n": model.n}
+    if isinstance(model, QuadraticCurve):
+        return {**base, "kind": "quadratic", "intercept": model.intercept,
+                "linearCoef": model.linear_coef, "quadCoef": model.quad_coef}
+    if isinstance(model, WeibullCurve):
+        return {**base, "kind": "weibull", "v0": model.v0, "lam": model.lam, "k": model.k}
+    if isinstance(model, BreakpointCurve):
+        return {**base, "kind": "breakpoint", "t0": model.t0,
+                "plateau": model.plateau, "slope": model.slope}
+    raise TypeError(f"unknown curve type: {type(model)!r}")
 
 
 def _build_charts_payload(
     df_model: pd.DataFrame,
-    species_models: dict[str, CurveModel],
-    global_model: CurveModel,
+    species_models: dict[str, Curve],
+    global_model: Curve,
     charted_species: list[str],
     species_group_col: str,
 ) -> list[dict]:
@@ -103,9 +117,9 @@ def build_report(
     accession_table: pd.DataFrame,
     inventory_table: pd.DataFrame,
     df_model: pd.DataFrame,
-    species_models: dict[str, CurveModel],
-    origin_models: dict[str, CurveModel],
-    global_model: CurveModel,
+    species_models: dict[str, Curve],
+    origin_models: dict[str, Curve],
+    global_model: Curve,
     genera: list[str],
     as_of_year: int,
     top_n_charts: int = 8,
@@ -601,6 +615,13 @@ const chartGrid = document.getElementById("chartGrid");
 const tooltip = document.getElementById("tooltip");
 
 function evalCurve(model, age) {
+  if (model.kind === "weibull") {
+    const a = Math.max(age, 0);
+    return model.v0 * Math.exp(-Math.pow(a / model.lam, model.k));
+  }
+  if (model.kind === "breakpoint") {
+    return age <= model.t0 ? model.plateau : model.plateau + model.slope * (age - model.t0);
+  }
   return model.intercept + model.linearCoef * age + model.quadCoef * age * age;
 }
 

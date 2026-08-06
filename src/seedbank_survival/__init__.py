@@ -6,7 +6,7 @@ from .data_prep import (
     clean_ages,
     load_accessions,
 )
-from .deterioration import CurveModel, fit_global_model, fit_group_models
+from .deterioration import Curve, fit_global_model, fit_group_models
 from .hierarchical import predict_hierarchical
 from .priority import build_priority_table, determine_primary_reason, estimate_years_to_zero
 
@@ -17,7 +17,7 @@ __all__ = [
     "build_model_dataset",
     "build_ranking_dataset",
     "build_inventory_view",
-    "CurveModel",
+    "Curve",
     "fit_global_model",
     "fit_group_models",
     "predict_hierarchical",
