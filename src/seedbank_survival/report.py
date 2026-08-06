@@ -8,11 +8,14 @@ matching the rest of this package's pure-function style.
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from datetime import datetime, timezone
 
 import pandas as pd
 
 from .deterioration import BreakpointCurve, Curve, QuadraticCurve, WeibullCurve
+
+_MODEL_LABELS = {"quadratic": "Quadratic", "weibull": "Weibull", "breakpoint": "Breakpoint"}
 
 _TABLE_COLUMNS = [
     ("Accession", "Accession"),
@@ -113,38 +116,89 @@ def _build_charts_payload(
     return charts
 
 
+@dataclass(frozen=True)
+class ModelReportData:
+    """One fitted model kind's worth of inputs to build_report.
+
+    Every curve kind (typically quadratic/weibull/breakpoint, but only
+    whichever the caller successfully fit -- see cli.py) gets its own
+    ModelReportData, and build_report embeds ALL of them -- a curator
+    switches models live in the browser with no server round-trip, so this
+    carries everything needed to rebuild both tables and the charts for
+    that one kind.
+    """
+
+    accession_table: pd.DataFrame
+    inventory_table: pd.DataFrame
+    df_model: pd.DataFrame
+    species_models: dict[str, Curve]
+    origin_models: dict[str, Curve]
+    global_model: Curve
+
+
+def _build_model_payload(
+    data: ModelReportData, top_n_charts: int, species_group_col: str, row_columns: list[str]
+) -> dict:
+    charted_species = _select_charted_species(data.accession_table, data.species_models, top_n_charts)
+    charts = _build_charts_payload(
+        data.df_model, data.species_models, data.global_model, charted_species, species_group_col
+    )
+    return {
+        "accessionRows": data.accession_table[row_columns].to_dict("records"),
+        "inventoryRows": data.inventory_table[row_columns].to_dict("records"),
+        "charts": charts,
+        "globalR2": round(data.global_model.r2, 2),
+        "globalN": data.global_model.n,
+    }
+
+
 def build_report(
-    accession_table: pd.DataFrame,
-    inventory_table: pd.DataFrame,
-    df_model: pd.DataFrame,
-    species_models: dict[str, Curve],
-    origin_models: dict[str, Curve],
-    global_model: Curve,
+    models: dict[str, ModelReportData],
     genera: list[str],
     as_of_year: int,
+    default_model: str = "quadratic",
     top_n_charts: int = 8,
     species_group_col: str = "SpeciesGroup",
 ) -> str:
-    """Build the self-contained HTML report. Returns HTML; writes nothing."""
-    charted_species = _select_charted_species(accession_table, species_models, top_n_charts)
-    charts = _build_charts_payload(
-        df_model, species_models, global_model, charted_species, species_group_col
-    )
-    _row_columns = [c for c, _ in _TABLE_COLUMNS] + _FILTER_ONLY_COLUMNS
+    """Build the self-contained HTML report. Returns HTML; writes nothing.
 
+    `models` carries one ModelReportData per fitted curve kind -- every
+    kind's full table + chart data is embedded in the page, and a "Model"
+    selector (present on both views, kept in sync between them -- the
+    underlying fitted curves don't depend on which view you're looking at,
+    only which rows each view selects) switches which one is displayed,
+    entirely client-side.
+
+    default_model picks which kind is shown on first load; falls back to
+    whichever key happens to be present if it's missing from `models` (e.g.
+    a weibull fit that failed to converge -- see cli.py).
+
+    Row counts (accession/inventory) don't vary by model kind -- every
+    qualifying row is exported regardless of which curve fit it, only the
+    PREDICTED values differ -- so they're hoisted to one shared, model-
+    independent field rather than duplicated per model.
+    """
+    if default_model not in models:
+        default_model = next(iter(models))
+
+    row_columns = [c for c, _ in _TABLE_COLUMNS] + _FILTER_ONLY_COLUMNS
+    model_payloads = {
+        kind: _build_model_payload(data, top_n_charts, species_group_col, row_columns)
+        for kind, data in models.items()
+    }
+
+    any_data = next(iter(models.values()))
     payload = {
         "genera": genera,
         "asOfYear": as_of_year,
         "generatedAt": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
         "columns": _TABLE_COLUMNS,
-        "accessionRows": accession_table[_row_columns].to_dict("records"),
-        "inventoryRows": inventory_table[_row_columns].to_dict("records"),
-        "charts": charts,
+        "models": model_payloads,
+        "modelLabels": {kind: _MODEL_LABELS[kind] for kind in models},
+        "defaultModel": default_model,
         "counts": {
-            "accession": len(accession_table),
-            "inventory": len(inventory_table),
-            "globalR2": round(global_model.r2, 2),
-            "globalN": global_model.n,
+            "accession": len(any_data.accession_table),
+            "inventory": len(any_data.inventory_table),
         },
     }
 
@@ -257,6 +311,9 @@ h1 { font-size: 24px; font-weight: 600; letter-spacing: -0.01em; margin: 0 0 6px
   display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-secondary);
   white-space: nowrap; cursor: pointer;
 }
+.control-label {
+  font-size: 13px; font-weight: 600; color: var(--text-secondary); white-space: nowrap;
+}
 .col-toggle { position: relative; }
 .col-toggle-btn {
   font: inherit; font-size: 13px; font-weight: 600; color: var(--text-secondary);
@@ -368,6 +425,10 @@ svg.chart { display: block; width: 100%; height: auto; overflow: visible; }
           <div class="col-menu" id="colMenuAccession" hidden></div>
         </div>
       </div>
+      <div class="controls">
+        <span class="control-label">Model:</span>
+        <fieldset class="radio-group" aria-label="Deterioration model" id="modelSelectAccession"></fieldset>
+      </div>
       <div class="table-scroll"><table id="accessionTable"></table></div>
       <p class="row-count" id="accessionCount"></p>
     </section>
@@ -391,13 +452,17 @@ svg.chart { display: block; width: 100%; height: auto; overflow: visible; }
           <div class="col-menu" id="colMenuInventory" hidden></div>
         </div>
       </div>
+      <div class="controls">
+        <span class="control-label">Model:</span>
+        <fieldset class="radio-group" aria-label="Deterioration model" id="modelSelectInventory"></fieldset>
+      </div>
       <div class="table-scroll"><table id="inventoryTable"></table></div>
       <p class="row-count" id="inventoryCount"></p>
     </section>
 
     <section class="card" id="chartsCard">
       <h2>Deterioration curves</h2>
-      <p class="sub">Real fitted data. Species get their own chart only when they actually won the confidence comparison against the genus-wide model.</p>
+      <p class="sub" id="chartsSub">Real fitted data. Species get their own chart only when they actually won the confidence comparison against the genus-wide model.</p>
       <div class="chart-grid" id="chartGrid"></div>
     </section>
   </div>
@@ -406,10 +471,25 @@ svg.chart { display: block; width: 100%; height: auto; overflow: visible; }
 
 <script>
 const DATA = __PAYLOAD__;
+let currentModel = DATA.defaultModel;
 
-document.getElementById("reportMeta").textContent =
-  `Genera: ${DATA.genera.join(", ")} · as of ${DATA.asOfYear} · generated ${DATA.generatedAt} · ` +
-  `${DATA.counts.accession} accessions · ${DATA.counts.inventory} packets · genus-wide R²=${DATA.counts.globalR2} (n=${DATA.counts.globalN})`;
+// ---------- model switching ----------
+// The fitted curves (and therefore the charts) don't depend on which view
+// you're looking at -- only which rows each view selects does -- so model
+// selection is ONE shared piece of state, with a selector duplicated on
+// both views (kept in sync) for convenience regardless of which tab is
+// active, rather than two independently-selectable models.
+function updateMeta() {
+  const m = DATA.models[currentModel];
+  document.getElementById("reportMeta").textContent =
+    `Genera: ${DATA.genera.join(", ")} · as of ${DATA.asOfYear} · generated ${DATA.generatedAt} · ` +
+    `${DATA.counts.accession} accessions · ${DATA.counts.inventory} packets · ` +
+    `${DATA.modelLabels[currentModel]} model, genus-wide R²=${m.globalR2} (n=${m.globalN})`;
+  document.getElementById("chartsSub").textContent =
+    `${DATA.modelLabels[currentModel]} curves, real fitted data. Species get their own chart only when ` +
+    `they actually won the confidence comparison against the genus-wide model.`;
+}
+updateMeta();
 
 // ---------- tables ----------
 // Columns start auto-sized (matching the old plain-table look). Right after
@@ -520,10 +600,10 @@ function renderTable(tableId, rows, columns) {
   };
 }
 
-const accessionTableCtl = renderTable("accessionTable", DATA.accessionRows, DATA.columns);
-const inventoryTableCtl = renderTable("inventoryTable", DATA.inventoryRows, DATA.columns);
-document.getElementById("accessionCount").textContent = DATA.accessionRows.length + " rows";
-document.getElementById("inventoryCount").textContent = DATA.inventoryRows.length + " rows";
+const accessionTableCtl = renderTable("accessionTable", DATA.models[currentModel].accessionRows, DATA.columns);
+const inventoryTableCtl = renderTable("inventoryTable", DATA.models[currentModel].inventoryRows, DATA.columns);
+document.getElementById("accessionCount").textContent = DATA.models[currentModel].accessionRows.length + " rows";
+document.getElementById("inventoryCount").textContent = DATA.models[currentModel].inventoryRows.length + " rows";
 
 accessionTableCtl.buildColumnMenu(document.getElementById("colMenuAccession"));
 inventoryTableCtl.buildColumnMenu(document.getElementById("colMenuInventory"));
@@ -546,7 +626,8 @@ function applyFilters() {
   document.querySelectorAll(".filter-input").forEach(input => {
     const targetId = input.dataset.filterFor;
     const query = input.value.trim().toLowerCase();
-    const source = targetId === "accessionTable" ? DATA.accessionRows : DATA.inventoryRows;
+    const modelData = DATA.models[currentModel];
+    const source = targetId === "accessionTable" ? modelData.accessionRows : modelData.inventoryRows;
     const ctl = targetId === "accessionTable" ? accessionTableCtl : inventoryTableCtl;
 
     let filtered = source;
@@ -573,8 +654,32 @@ function applyFilters() {
   });
 }
 document.querySelectorAll(".filter-input").forEach(el => el.addEventListener("input", applyFilters));
-document.querySelectorAll('.radio-group input[type="radio"]').forEach(el => el.addEventListener("change", applyFilters));
+// Model-select radios are excluded here -- their own handler (setModel,
+// below) needs to run first to swap currentModel before applyFilters reads
+// DATA.models[currentModel]; setModel calls applyFilters itself afterward.
+document.querySelectorAll('.radio-group input[type="radio"]:not([name^="modelSelect"])').forEach(el => el.addEventListener("change", applyFilters));
 document.querySelectorAll('.checkbox-label input[type="checkbox"]').forEach(el => el.addEventListener("change", applyFilters));
+
+function buildModelSelector(container, groupName) {
+  container.innerHTML = Object.keys(DATA.models).map(kind =>
+    `<label><input type="radio" name="${groupName}" value="${kind}" ${kind === currentModel ? "checked" : ""}> ${DATA.modelLabels[kind]}</label>`
+  ).join("");
+}
+buildModelSelector(document.getElementById("modelSelectAccession"), "modelSelectAccession");
+buildModelSelector(document.getElementById("modelSelectInventory"), "modelSelectInventory");
+
+function setModel(kind) {
+  currentModel = kind;
+  document.querySelectorAll('input[name="modelSelectAccession"], input[name="modelSelectInventory"]').forEach(el => {
+    el.checked = el.value === kind;
+  });
+  updateMeta();
+  renderCharts(DATA.models[currentModel].charts);
+  applyFilters();
+}
+document.querySelectorAll('input[name="modelSelectAccession"], input[name="modelSelectInventory"]').forEach(el => {
+  el.addEventListener("change", (e) => setModel(e.target.value));
+});
 
 // ---------- view toggle ----------
 document.querySelectorAll(".view-tab").forEach(tab => {
@@ -669,21 +774,25 @@ function buildChartSvg(chart) {
   return svg;
 }
 
-DATA.charts.forEach(chart => {
-  const div = document.createElement("div");
-  div.className = "chart-card";
-  // A curve has no single constant slope -- show the average rate of
-  // change over the plotted age range instead of one instantaneous value.
-  // Clipped the same way the drawn curve is: an unclipped quadratic can
-  // extrapolate to wildly implausible values (e.g. -300%) at the edge of a
-  // wide age range even when the curve is visibly flat at 0 for most of
-  // it, which would otherwise contradict what the chart actually shows.
-  const clip = v => Math.max(0, Math.min(100, v));
-  const avgSlope = (clip(evalCurve(chart.model, chart.xMax)) - clip(evalCurve(chart.model, 0))) / chart.xMax;
-  div.innerHTML = `<h3>${chart.title}</h3>` + buildChartSvg(chart) +
-    `<div class="chart-stat">n=${chart.model.n} · R²=${chart.model.r2.toFixed(2)} · avg ${avgSlope.toFixed(2)}%/yr</div>`;
-  chartGrid.appendChild(div);
-});
+function renderCharts(charts) {
+  chartGrid.innerHTML = "";
+  charts.forEach(chart => {
+    const div = document.createElement("div");
+    div.className = "chart-card";
+    // A curve has no single constant slope -- show the average rate of
+    // change over the plotted age range instead of one instantaneous value.
+    // Clipped the same way the drawn curve is: an unclipped quadratic can
+    // extrapolate to wildly implausible values (e.g. -300%) at the edge of a
+    // wide age range even when the curve is visibly flat at 0 for most of
+    // it, which would otherwise contradict what the chart actually shows.
+    const clip = v => Math.max(0, Math.min(100, v));
+    const avgSlope = (clip(evalCurve(chart.model, chart.xMax)) - clip(evalCurve(chart.model, 0))) / chart.xMax;
+    div.innerHTML = `<h3>${chart.title}</h3>` + buildChartSvg(chart) +
+      `<div class="chart-stat">n=${chart.model.n} · R²=${chart.model.r2.toFixed(2)} · avg ${avgSlope.toFixed(2)}%/yr</div>`;
+    chartGrid.appendChild(div);
+  });
+}
+renderCharts(DATA.models[currentModel].charts);
 
 chartGrid.addEventListener("mousemove", (e) => {
   const target = e.target.closest(".dot");
