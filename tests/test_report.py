@@ -8,8 +8,11 @@ from seedbank_survival.report import build_report
 
 _COLUMNS = [
     "Accession", "Suffix", "Status", "Species", "Origin", "SeedAge", "PrimaryReason",
-    "EstimatedViability_2026", "YearsRemainingTo0%", "ModelUsed", "ModelConfidence",
+    "EstimatedViability_2026", "YearsRemainingTo0%", "ModelUsed", "ModelConfidence", "Location",
 ]
+# Carried alongside _COLUMNS but not one of the displayed table columns --
+# only used by the on-site filter checkbox (see report.py's _FILTER_ONLY_COLUMNS).
+_EXTRA_ROW_COLUMNS = ["MaintenanceSite"]
 
 
 def _table_row(**overrides):
@@ -25,6 +28,8 @@ def _table_row(**overrides):
         "YearsRemainingTo0%": 2.0,
         "ModelUsed": "Species",
         "ModelConfidence": 0.75,
+        "Location": "minus20, C09",
+        "MaintenanceSite": "W6",
     }
     row.update(overrides)
     return pd.Series(row)
@@ -32,10 +37,10 @@ def _table_row(**overrides):
 
 @pytest.fixture
 def report_inputs():
-    accession_table = pd.DataFrame([_table_row()])[_COLUMNS]
+    accession_table = pd.DataFrame([_table_row()])[_COLUMNS + _EXTRA_ROW_COLUMNS]
     inventory_table = pd.DataFrame(
         [_table_row(), _table_row(Accession="PI 1", ModelUsed="Species")]
-    )[_COLUMNS]
+    )[_COLUMNS + _EXTRA_ROW_COLUMNS]
     df_model = pd.DataFrame(
         {
             "AgeAtTest": [10, 20, 30],
@@ -71,8 +76,8 @@ def test_build_report_includes_winning_species_chart(report_inputs):
 
 def test_build_report_omits_species_that_never_won_a_row():
     inputs = {
-        "accession_table": pd.DataFrame([_table_row(ModelUsed="Global")])[_COLUMNS],
-        "inventory_table": pd.DataFrame([_table_row(ModelUsed="Global")])[_COLUMNS],
+        "accession_table": pd.DataFrame([_table_row(ModelUsed="Global")])[_COLUMNS + _EXTRA_ROW_COLUMNS],
+        "inventory_table": pd.DataFrame([_table_row(ModelUsed="Global")])[_COLUMNS + _EXTRA_ROW_COLUMNS],
         "df_model": pd.DataFrame(
             {"AgeAtTest": [10, 20, 30], "Viability": [80.0, 60.0, 40.0],
              "SpeciesGroup": ["Astragalus cicer"] * 3}
@@ -144,7 +149,7 @@ def test_build_report_respects_chart_cap(report_inputs):
         for i in range(10)
     ]
     inputs = dict(report_inputs)
-    inputs["accession_table"] = pd.DataFrame(accession_rows)[_COLUMNS]
+    inputs["accession_table"] = pd.DataFrame(accession_rows)[_COLUMNS + _EXTRA_ROW_COLUMNS]
     inputs["species_models"] = species_models
     inputs["df_model"] = pd.DataFrame(
         {
@@ -158,10 +163,32 @@ def test_build_report_respects_chart_cap(report_inputs):
     assert html.count('"title":') == 4  # global + 3 capped species charts
 
 
+def test_build_report_includes_location_column(report_inputs):
+    html = build_report(**report_inputs)
+    assert '"Location"' in html
+    assert "minus20, C09" in html
+
+
+def test_build_report_has_on_site_checkbox_on_both_views(report_inputs):
+    html = build_report(**report_inputs)
+    assert 'id="onSiteAccession"' in html
+    assert 'id="onSiteInventory"' in html
+    assert "W6" in html and "Pullman" in html
+
+
+def test_build_report_maintenance_site_used_for_filtering_not_displayed(report_inputs):
+    html = build_report(**report_inputs)
+    # Row payloads carry MaintenanceSite so the on-site checkbox can filter on it...
+    assert '"MaintenanceSite": "W6"' in html
+    # ...but it must not be one of the rendered/sortable table columns.
+    columns_segment = html.split('"accessionRows"')[0]
+    assert "MaintenanceSite" not in columns_segment
+
+
 def test_build_report_includes_status_column_on_both_views(report_inputs):
     inputs = dict(report_inputs)
-    inputs["accession_table"] = pd.DataFrame([_table_row(Status="Backup germplasm")])[_COLUMNS]
-    inputs["inventory_table"] = pd.DataFrame([_table_row(Status="Exhausted supply")])[_COLUMNS]
+    inputs["accession_table"] = pd.DataFrame([_table_row(Status="Backup germplasm")])[_COLUMNS + _EXTRA_ROW_COLUMNS]
+    inputs["inventory_table"] = pd.DataFrame([_table_row(Status="Exhausted supply")])[_COLUMNS + _EXTRA_ROW_COLUMNS]
     html = build_report(**inputs)
     assert '"Status"' in html
     assert "Backup germplasm" in html

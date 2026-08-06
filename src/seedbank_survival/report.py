@@ -26,7 +26,13 @@ _TABLE_COLUMNS = [
     ("YearsRemainingTo0%", "Years to 0%"),
     ("ModelUsed", "Model"),
     ("ModelConfidence", "Confidence"),
+    ("Location", "Location"),
 ]
+
+# Carried into each row's JSON payload for the on-site filter checkbox, but
+# deliberately excluded from _TABLE_COLUMNS -- MaintenanceSite (e.g. "W6") is
+# a filter key, not something a curator needs its own visible column for.
+_FILTER_ONLY_COLUMNS = ["MaintenanceSite"]
 
 # Every per-species/per-global chart uses this SAME color pair -- each chart
 # is its own small multiple (one series + one dashed reference), never two
@@ -112,14 +118,15 @@ def build_report(
     charts = _build_charts_payload(
         df_model, species_models, global_model, charted_species, species_group_col
     )
+    _row_columns = [c for c, _ in _TABLE_COLUMNS] + _FILTER_ONLY_COLUMNS
 
     payload = {
         "genera": genera,
         "asOfYear": as_of_year,
         "generatedAt": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
         "columns": _TABLE_COLUMNS,
-        "accessionRows": accession_table[[c for c, _ in _TABLE_COLUMNS]].to_dict("records"),
-        "inventoryRows": inventory_table[[c for c, _ in _TABLE_COLUMNS]].to_dict("records"),
+        "accessionRows": accession_table[_row_columns].to_dict("records"),
+        "inventoryRows": inventory_table[_row_columns].to_dict("records"),
         "charts": charts,
         "counts": {
             "accession": len(accession_table),
@@ -234,6 +241,10 @@ h1 { font-size: 24px; font-weight: 600; letter-spacing: -0.01em; margin: 0 0 6px
   display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-secondary);
   white-space: nowrap; cursor: pointer;
 }
+.checkbox-label {
+  display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-secondary);
+  white-space: nowrap; cursor: pointer;
+}
 .sort-note {
   font-size: 12px; color: var(--accent); margin: 0 0 14px; font-weight: 600;
 }
@@ -304,6 +315,7 @@ svg.chart { display: block; width: 100%; height: auto; overflow: visible; }
           <label><input type="radio" name="viabilityFilterAccession" value="exclude0"> Exclude 0% Expected Viability</label>
           <label><input type="radio" name="viabilityFilterAccession" value="only0"> Show Only 0% Expected Viability</label>
         </fieldset>
+        <label class="checkbox-label"><input type="checkbox" id="onSiteAccession"> On-site only (W6, Pullman)</label>
       </div>
       <div class="table-scroll"><table id="accessionTable"></table></div>
       <p class="row-count" id="accessionCount"></p>
@@ -322,6 +334,7 @@ svg.chart { display: block; width: 100%; height: auto; overflow: visible; }
           <label><input type="radio" name="viabilityFilterInventory" value="exclude0"> Exclude 0% Expected Viability</label>
           <label><input type="radio" name="viabilityFilterInventory" value="only0"> Show Only 0% Expected Viability</label>
         </fieldset>
+        <label class="checkbox-label"><input type="checkbox" id="onSiteInventory"> On-site only (W6, Pullman)</label>
       </div>
       <div class="table-scroll"><table id="inventoryTable"></table></div>
       <p class="row-count" id="inventoryCount"></p>
@@ -407,12 +420,17 @@ function applyFilters() {
     } else if (viabilityFilter === "only0") {
       filtered = filtered.filter(row => Math.round(row["EstimatedViability_2026"] || 0) === 0);
     }
+    const onSiteId = targetId === "accessionTable" ? "onSiteAccession" : "onSiteInventory";
+    if (document.getElementById(onSiteId).checked) {
+      filtered = filtered.filter(row => row["MaintenanceSite"] === "W6");
+    }
     ctl.setRows(filtered);
     document.getElementById(targetId === "accessionTable" ? "accessionCount" : "inventoryCount").textContent = filtered.length + " rows";
   });
 }
 document.querySelectorAll(".filter-input").forEach(el => el.addEventListener("input", applyFilters));
 document.querySelectorAll('.radio-group input[type="radio"]').forEach(el => el.addEventListener("change", applyFilters));
+document.querySelectorAll('.checkbox-label input[type="checkbox"]').forEach(el => el.addEventListener("change", applyFilters));
 
 // ---------- view toggle ----------
 document.querySelectorAll(".view-tab").forEach(tab => {
