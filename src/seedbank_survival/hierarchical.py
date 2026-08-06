@@ -27,7 +27,18 @@ def _predict_row(
     # near-zero-variance group, e.g. 3 nearly-identical Viability values --
     # rare but real on actual data) -- treat unknown confidence the same as
     # losing the comparison, since there's no basis to trust it over Global.
-    if model_used != "Global" and not (model.r2 >= global_model.r2):
+    #
+    # R^2 alone isn't enough: a group fit on very few points (e.g. n=3, 1
+    # residual degree of freedom) routinely has a high R^2 by chance, with a
+    # slope that's statistically indistinguishable from zero -- verified
+    # against real data, where the large majority of tier models that "won"
+    # on R^2 alone had a 95% CI on the slope spanning zero. A tier's slope
+    # must also be a statistically significant trend (p < 0.05) to be
+    # trusted over Global; a NaN p-value (same near-zero-variance case as
+    # above) fails this the same way NaN r2 does.
+    if model_used != "Global" and (
+        not (model.r2 >= global_model.r2) or not (model.slope_pvalue < 0.05)
+    ):
         model, model_used = global_model, "Global"
 
     predicted = model.intercept + (model.slope * age)

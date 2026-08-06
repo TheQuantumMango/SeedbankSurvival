@@ -8,12 +8,21 @@ from statsmodels.formula.api import ols
 
 @dataclass(frozen=True)
 class SlopeModel:
-    """A fitted linear viability-deterioration model: Viability ~ AgeAtTest."""
+    """A fitted linear viability-deterioration model: Viability ~ AgeAtTest.
+
+    slope_pvalue is the two-sided p-value for the null hypothesis that the
+    slope is zero (no deterioration trend) -- distinct from r2. A small group
+    (e.g. n=3, 1 residual degree of freedom) can have a high r2 almost by
+    chance; slope_pvalue is what actually says whether the fitted trend is
+    distinguishable from noise. See hierarchical.py's confidence override,
+    which requires both.
+    """
 
     intercept: float
     slope: float
     n: int
     r2: float
+    slope_pvalue: float
 
 
 def _fit(df: pd.DataFrame) -> SlopeModel:
@@ -23,6 +32,7 @@ def _fit(df: pd.DataFrame) -> SlopeModel:
         slope=fit.params["AgeAtTest"],
         n=len(df),
         r2=fit.rsquared,
+        slope_pvalue=fit.pvalues["AgeAtTest"],
     )
 
 

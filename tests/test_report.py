@@ -48,8 +48,8 @@ def report_inputs():
             "SpeciesGroup": ["Astragalus cicer"] * 3,
         }
     )
-    species_models = {"Astragalus cicer": SlopeModel(intercept=90, slope=-1.5, n=3, r2=0.95)}
-    global_model = SlopeModel(intercept=85, slope=-1.0, n=3, r2=0.8)
+    species_models = {"Astragalus cicer": SlopeModel(intercept=90, slope=-1.5, n=3, r2=0.95, slope_pvalue=0.01)}
+    global_model = SlopeModel(intercept=85, slope=-1.0, n=3, r2=0.8, slope_pvalue=0.01)
     return {
         "accession_table": accession_table,
         "inventory_table": inventory_table,
@@ -84,9 +84,9 @@ def test_build_report_omits_species_that_never_won_a_row():
         ),
         # Species has a fitted model, but no row's ModelUsed ever resolved to "Species"
         # (all overridden to Global) -- must not get its own chart.
-        "species_models": {"Astragalus cicer": SlopeModel(intercept=90, slope=-1.5, n=3, r2=0.2)},
+        "species_models": {"Astragalus cicer": SlopeModel(intercept=90, slope=-1.5, n=3, r2=0.2, slope_pvalue=0.01)},
         "origin_models": {},
-        "global_model": SlopeModel(intercept=85, slope=-1.0, n=3, r2=0.8),
+        "global_model": SlopeModel(intercept=85, slope=-1.0, n=3, r2=0.8, slope_pvalue=0.01),
         "genera": ["Astragalus"],
         "as_of_year": 2026,
     }
@@ -141,7 +141,7 @@ def test_build_report_table_pane_is_independently_scrollable(report_inputs):
 
 def test_build_report_respects_chart_cap(report_inputs):
     species_models = {
-        f"Astragalus species{i}": SlopeModel(intercept=90, slope=-1.0, n=5, r2=0.9)
+        f"Astragalus species{i}": SlopeModel(intercept=90, slope=-1.0, n=5, r2=0.9, slope_pvalue=0.01)
         for i in range(10)
     }
     accession_rows = [
