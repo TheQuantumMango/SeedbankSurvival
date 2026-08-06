@@ -283,6 +283,23 @@ divergence from it rather than just re-testing current behavior in isolation:
   instead of the population's average starting point. `PrimaryReason` gets
   `"Tested at low viability"` when that real result is itself ≤30%, to
   distinguish a lab-confirmed low result from a merely predicted one.
+- **Own-test extrapolation trusting a curve's shape arbitrarily far from its
+  data** -- found while comparing rankings across the three `--model` kinds
+  on real data: an accession tested at a healthy 79% just 1 year earlier was
+  predicted 0% under `breakpoint`, because its species-tier curve (fit only
+  up to age 4) got extrapolated out to age 17 using a rate that had no data
+  supporting it that far out. Confirmed this wasn't a one-off: 14-19 of 808
+  tested rows (1.7-2.4%, depending on model kind) showed a real test ≥50%
+  collapsing to a predicted ≤5%. Two fixes to `hierarchical.py`'s
+  extrapolation, both verified against real data (17/14/19 such collapses
+  -> 1/2/0): each curve evaluation is now clipped to [0, 100] individually
+  before the delta is taken (so one extreme endpoint can't compound with
+  another instead of being caught), and the age used is capped at the
+  curve's own `max_fit_age` (new field on every `Curve`, the oldest
+  AgeAtTest it was actually fit on) -- held flat at the curve's value there
+  rather than continuing to extrapolate a rate past where it was validated.
+  Also visibly tightened agreement between model kinds at the top of the
+  list: quadratic-vs-weibull top-10 overlap rose from 17.6% to 81.8% Jaccard.
 - **"Low germination" with no recorded percentage** -- a Status (or
   free-text note) documenting a known concern like this shouldn't quietly
   fall back to the tier's average-case curve just because no exact number
