@@ -4,8 +4,9 @@ A seedbank viability assessment tool: fits deterioration curves (genus-wide
 and per-species, falling back to per-origin where species data is sparse) on
 GRIN-Global accession data, and produces two views of the result -- which
 accessions to prioritize for regeneration, and which physical packets to test
-or discard. Three curve forms are available (`--model quadratic|weibull
-|breakpoint`) -- see "Choosing a deterioration curve" below.
+or discard. Three curve forms are fit every run and switchable live in the
+report (`quadratic`/`weibull`/`breakpoint`) -- see "Choosing a deterioration
+curve" below.
 
 The original analysis started as a single class-project notebook
 (`notebooks/DATA115_Final4_Charpentier.ipynb`, kept for historical reference).
@@ -55,10 +56,19 @@ view (Accession/Inventory) and reset on reload; nothing is saved back to disk.
 
 ## Choosing a deterioration curve
 
-`--model` picks the functional form fit to `Viability ~ AgeAtTest`, per
-`deterioration.py`. All three are compared with the same statistical
-machinery (R² vs. Global, `overall_pvalue` significance gate, `min_n=4`) --
-only the curve's shape differs:
+All three model kinds (`Viability ~ AgeAtTest`, per `deterioration.py`) are
+fit every run and embedded in `report.html` -- a **"Model" selector on both
+views** switches which one the table and charts show, live in the browser,
+no re-running the CLI. It's one shared choice (not independently pickable
+per view): the underlying fitted curves don't depend on which view you're
+looking at, only which rows each view selects does, so the selector is
+duplicated on both views for convenience and stays in sync between them.
+`--model` only picks which kind's table is written to the plain CSVs (which
+can't be interactive) and which one the report shows on first load.
+
+All three are compared with the same statistical machinery (R² vs. Global,
+`overall_pvalue` significance gate, `min_n=4`) -- only the curve's shape
+differs:
 
 | | Monotonic? | Shape | Fit risk |
 |---|---|---|---|
