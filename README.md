@@ -47,6 +47,11 @@ Output, written to `--out-dir` (default: current directory):
 open it directly in any browser -- no server, works on a locked-down machine
 with no admin install rights beyond what running the tool itself needs).
 
+Each table in `report.html` is sortable (click a header) and filterable.
+Column widths are drag-resizable (grab a header's right edge), and the
+"Columns ▾" menu toggles which columns are shown -- both independent per
+view (Accession/Inventory) and reset on reload; nothing is saved back to disk.
+
 ## Data sources
 
 Two input paths, both ending up in the same normalized shape:
