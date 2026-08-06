@@ -103,6 +103,16 @@ via the same `hierarchical.predict_hierarchical` and the same row-flagging
 view is capped; the report's checkbox/filters are how you narrow what you're
 looking at, not an export-time cutoff).
 
+Both views also carry `MaintenanceSite` (the raw export's `Inventory
+Maintenance Site` -- e.g. "W6", "NLGRP", "DLEG") and `Location` (a
+comma-joined `Location Section 1`-`4`, blank sections skipped -- where in the
+facility a packet physically is). Both come from the raw-GRIN-export path
+only (`grin_import.adapt_raw_export`); the older reformatted CSV/XLSX path
+has no per-inventory location data, so `build_priority_table` fills both
+columns blank there rather than requiring them. The report's "On-site only
+(W6, Pullman)" checkbox filters on `MaintenanceSite`; `Location` is a plain
+display column, shown far right in both table views.
+
 ## Layout
 
 ```
