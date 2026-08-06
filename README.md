@@ -185,3 +185,19 @@ divergence from it rather than just re-testing current behavior in isolation:
   lot regardless of whether it had seed left.
 - **Real-seed-or-whitelisted-status broadening** -- the original only ever
   looked at Status text for the Accession view.
+- **Inherited-test-result double counting** -- a dated lot's viability test
+  is routinely re-recorded on a same-Accession "Backup germplasm" row a few
+  *hours* later the same day (an administrative echo of one physical test,
+  not an independent measurement). The existing duplicate guard in
+  `grin_import._build_borrowed_rows` matched on exact Tested Date timestamp
+  and missed nearly all of these -- confirmed against real data that ~21% of
+  the whole model-fitting dataset (162 accessions) was double-counted this
+  way before matching on calendar day instead.
+- **Statistically insignificant tier confidence** -- `hierarchical.py`'s
+  Species/Origin-over-Global override compared R² alone. A group fit on very
+  few points (e.g. n=3, 1 residual degree of freedom) routinely has a
+  deceptively high R² by chance; confirmed against real data that most
+  Origin-tier models winning on R² alone had a slope statistically
+  indistinguishable from zero (95% CI spanning 0). `SlopeModel` now also
+  carries `slope_pvalue`, and a tier must be significant (p<0.05) *in
+  addition to* beating Global's R² to be trusted over it.
