@@ -212,6 +212,19 @@ def test_depleted_lot_fallback_diverges_from_oracle(synthetic_accessions_df):
     assert modular_row["SeedAge"] == 15
 
 
+def test_priority_table_fills_blank_location_columns_when_absent_from_source(synthetic_accessions_df):
+    """The reformatted CSV/XLSX path (this fixture's shape) has no per-inventory
+    location data at all -- unlike the raw-GRIN path (grin_import.adapt_raw_export),
+    which populates MaintenanceSite/Location for real. build_priority_table must
+    still succeed and fill both columns blank rather than raising a KeyError."""
+    modular = run_modular_pipeline(synthetic_accessions_df)
+    table = modular["priority_table"]
+    assert "MaintenanceSite" in table.columns
+    assert "Location" in table.columns
+    assert (table["MaintenanceSite"] == "").all()
+    assert (table["Location"] == "").all()
+
+
 def test_real_seed_includes_accession_despite_unwhitelisted_status(synthetic_accessions_df):
     """ACC-Q has a Status the whitelist has never covered ("Unknown status") but
     real seed on hand (EstTotalSeed 500) -- included via the OR-gate, absent

@@ -17,6 +17,8 @@ _OUTPUT_COLUMNS = [
     "YearsToZero",
     "ModelUsed",
     "ModelConfidence",
+    "MaintenanceSite",
+    "Location",
 ]
 
 _OUTPUT_COLUMN_NAMES = [
@@ -31,7 +33,15 @@ _OUTPUT_COLUMN_NAMES = [
     "YearsRemainingTo0%",
     "ModelUsed",
     "ModelConfidence",
+    "MaintenanceSite",
+    "Location",
 ]
+
+# Only populated on the raw-GRIN-export path (grin_import.adapt_raw_export) --
+# the older reformatted CSV/XLSX path (data_prep.load_accessions) has no
+# per-inventory location data at all, so those columns are filled blank
+# rather than required, to keep that path usable.
+_LOCATION_COLUMNS = ("MaintenanceSite", "Location")
 
 
 def estimate_years_to_zero(
@@ -105,6 +115,9 @@ def build_priority_table(
     (see hierarchical.predict_hierarchical).
     """
     df_ranking = df_ranking.copy()
+    for col in _LOCATION_COLUMNS:
+        if col not in df_ranking.columns:
+            df_ranking[col] = ""
 
     df_ranking["YearsToZero"] = df_ranking.apply(
         estimate_years_to_zero,
