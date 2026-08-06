@@ -201,3 +201,21 @@ divergence from it rather than just re-testing current behavior in isolation:
   indistinguishable from zero (95% CI spanning 0). `SlopeModel` now also
   carries `slope_pvalue`, and a tier must be significant (p<0.05) *in
   addition to* beating Global's R² to be trusted over it.
+- **Ignoring an inventory's own test result** -- `PredictedViability_2026`
+  was always computed from a tier's fitted intercept (the *population*
+  average starting point), even for a packet with its own real measured
+  Viability. A row with its own Viability + AgeAtTest now extrapolates from
+  that specific measurement using the selected tier's slope instead --
+  `PrimaryReason` gets `"Tested at low viability"` when that real result is
+  itself ≤30%, to distinguish a lab-confirmed low result from a merely
+  predicted one. Affects 808/1401 real Astragalus accession-view rows.
+- **"Low germination" with no recorded percentage** -- a Status (or
+  free-text note) documenting a known concern like this shouldn't quietly
+  fall back to the tier's average-case curve just because no exact number
+  was written down, understating that accession's regeneration need. Such
+  rows now get an assumed 10% viability, anchored to the lot's own year
+  (`ViabilityAssumed=True`, `PrimaryReason` gets `"Assumed low germination,
+  no test data"`) -- excluded from curve-fitting itself (only affects that
+  row's own prediction). No effect on the current real Astragalus data
+  (every "Low germination" row there already has a real percentage
+  recorded), but guards against it for this or another GRIN export.
