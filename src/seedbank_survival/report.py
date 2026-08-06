@@ -207,19 +207,42 @@ h1 { font-size: 24px; font-weight: 600; letter-spacing: -0.01em; margin: 0 0 6px
 .card h2 { font-size: 17px; font-weight: 600; margin: 0 0 4px; }
 .card .sub { font-size: 12.5px; color: var(--text-secondary); margin: 0 0 16px; }
 
-.controls { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; margin-bottom: 14px; }
+.view-tabs {
+  display: flex; gap: 4px; padding: 4px; margin-bottom: 18px;
+  background: var(--surface-2); border-radius: 10px; width: fit-content;
+}
+.view-tab {
+  font: inherit; font-size: 13px; font-weight: 600; color: var(--text-secondary);
+  background: transparent; border: none; border-radius: 7px; padding: 8px 16px;
+  cursor: pointer;
+}
+.view-tab.active { background: var(--surface-1); color: var(--text-primary); box-shadow: 0 1px 2px var(--border); }
+.view-tab:hover:not(.active) { color: var(--text-primary); }
+
+.controls { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; margin-bottom: 6px; }
 .filter-input {
   flex: 1; min-width: 200px; padding: 7px 11px; font-size: 13px;
   border: 1px solid var(--border); border-radius: 8px;
   background: var(--surface-2); color: var(--text-primary);
 }
-.checkbox-label {
-  display: flex; align-items: center; gap: 7px; font-size: 13px; color: var(--text-secondary);
-  white-space: nowrap;
+.radio-group {
+  display: flex; flex-wrap: wrap; gap: 14px; margin: 0; padding: 0; border: none;
+}
+.radio-group label {
+  display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-secondary);
+  white-space: nowrap; cursor: pointer;
+}
+.sort-note {
+  font-size: 12px; color: var(--accent); margin: 0 0 14px; font-weight: 600;
 }
 .row-count { font-size: 12px; color: var(--text-muted); margin-top: 8px; font-variant-numeric: tabular-nums; }
 
-.table-scroll { overflow-x: auto; }
+.table-scroll {
+  overflow: auto;
+  max-height: 62vh;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
 table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
 th, td { text-align: left; padding: 7px 10px; white-space: nowrap; }
 th {
@@ -261,20 +284,30 @@ svg.chart { display: block; width: 100%; height: auto; overflow: visible; }
       <p class="meta" id="reportMeta"></p>
     </header>
 
+    <div class="view-tabs" role="tablist">
+      <button class="view-tab active" type="button" role="tab" aria-selected="true" data-view="accession">Accession view</button>
+      <button class="view-tab" type="button" role="tab" aria-selected="false" data-view="inventory">Inventory view</button>
+    </div>
+
     <section class="card" id="accessionCard">
       <h2>Accession view</h2>
       <p class="sub">One row per accession -- the best-representative packet, for deciding what to regenerate.</p>
+      <p class="sort-note">Sorted by regeneration urgency: highest need (lowest predicted viability) first.</p>
       <div class="controls">
         <input class="filter-input" type="text" placeholder="Filter by accession, species, origin, reason..." data-filter-for="accessionTable">
-        <label class="checkbox-label">
-          <input type="checkbox" id="deadOnlyCheckbox"> Show only ~0% expected viability
-        </label>
+      </div>
+      <div class="controls">
+        <fieldset class="radio-group" aria-label="Viability filter">
+          <label><input type="radio" name="viabilityFilter" value="all" checked> Show All</label>
+          <label><input type="radio" name="viabilityFilter" value="exclude0"> Exclude 0% Expected Viability</label>
+          <label><input type="radio" name="viabilityFilter" value="only0"> Show Only 0% Expected Viability</label>
+        </fieldset>
       </div>
       <div class="table-scroll"><table id="accessionTable"></table></div>
       <p class="row-count" id="accessionCount"></p>
     </section>
 
-    <section class="card" id="inventoryCard">
+    <section class="card" id="inventoryCard" hidden>
       <h2>Inventory view</h2>
       <p class="sub">Every physical packet with seed on hand, dead or alive -- for deciding what to test or discard.</p>
       <div class="controls">
@@ -357,15 +390,36 @@ function applyFilters() {
         )
       );
     }
-    if (targetId === "accessionTable" && document.getElementById("deadOnlyCheckbox").checked) {
-      filtered = filtered.filter(row => Math.round(row["EstimatedViability_2026"] || 0) === 0);
+    if (targetId === "accessionTable") {
+      const viabilityFilter = document.querySelector('input[name="viabilityFilter"]:checked').value;
+      if (viabilityFilter === "exclude0") {
+        filtered = filtered.filter(row => Math.round(row["EstimatedViability_2026"] || 0) !== 0);
+      } else if (viabilityFilter === "only0") {
+        filtered = filtered.filter(row => Math.round(row["EstimatedViability_2026"] || 0) === 0);
+      }
     }
     ctl.setRows(filtered);
     document.getElementById(targetId === "accessionTable" ? "accessionCount" : "inventoryCount").textContent = filtered.length + " rows";
   });
 }
 document.querySelectorAll(".filter-input").forEach(el => el.addEventListener("input", applyFilters));
-document.getElementById("deadOnlyCheckbox").addEventListener("change", applyFilters);
+document.querySelectorAll('input[name="viabilityFilter"]').forEach(el => el.addEventListener("change", applyFilters));
+
+// ---------- view toggle ----------
+document.querySelectorAll(".view-tab").forEach(tab => {
+  tab.addEventListener("click", () => {
+    document.querySelectorAll(".view-tab").forEach(t => {
+      t.classList.remove("active");
+      t.setAttribute("aria-selected", "false");
+    });
+    tab.classList.add("active");
+    tab.setAttribute("aria-selected", "true");
+
+    const view = tab.dataset.view;
+    document.getElementById("accessionCard").hidden = view !== "accession";
+    document.getElementById("inventoryCard").hidden = view !== "inventory";
+  });
+});
 
 // ---------- charts ----------
 const chartGrid = document.getElementById("chartGrid");

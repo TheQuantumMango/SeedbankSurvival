@@ -99,6 +99,33 @@ def test_build_report_has_light_and_dark_tokens(report_inputs):
     assert 'data-theme="dark"' in html
 
 
+def test_build_report_has_view_toggle_tabs(report_inputs):
+    html = build_report(**report_inputs)
+    assert 'data-view="accession"' in html
+    assert 'data-view="inventory"' in html
+    # Inventory card starts hidden -- the toggle, not two stacked sections, controls visibility.
+    assert 'id="inventoryCard" hidden' in html
+
+
+def test_build_report_has_three_way_viability_radio_group(report_inputs):
+    html = build_report(**report_inputs)
+    assert 'name="viabilityFilter" value="all"' in html
+    assert 'name="viabilityFilter" value="exclude0"' in html
+    assert 'name="viabilityFilter" value="only0"' in html
+    assert "deadOnlyCheckbox" not in html
+
+
+def test_build_report_has_accession_view_sort_note(report_inputs):
+    html = build_report(**report_inputs)
+    assert "highest need" in html.lower()
+
+
+def test_build_report_table_pane_is_independently_scrollable(report_inputs):
+    html = build_report(**report_inputs)
+    assert "max-height: 62vh" in html
+    assert "overflow: auto" in html
+
+
 def test_build_report_respects_chart_cap(report_inputs):
     species_models = {
         f"Astragalus species{i}": SlopeModel(intercept=90, slope=-1.0, n=5, r2=0.9)
