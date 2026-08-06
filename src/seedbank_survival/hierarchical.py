@@ -53,7 +53,22 @@ def _predict_row(
         # than treating it as "average for its tier," and the reason a test
         # result exists at all. Reduces to the old slope*(age-age_at_test)
         # extrapolation exactly when the curve is a straight line.
-        predicted = tested_viability + (model.predict(age) - model.predict(age_at_test))
+        #
+        # Two guards, both verified necessary against real data (a "tested
+        # at 79%, predicted 0%" case traced to exactly this): each endpoint
+        # is clipped to [0, 100] before differencing, so one wildly
+        # out-of-range evaluation can't compound with another instead of
+        # being caught by the final clip below; and the target age is
+        # capped at the tier's own max_fit_age, since a curve's rate of
+        # change extrapolated far past the ages it was actually fit on is
+        # exactly what produced that result -- one accession's species tier
+        # was fit on data only up to age 4 and got extrapolated to age 17.
+        # Held flat at the curve's value at max_fit_age beyond that, rather
+        # than continuing to apply a rate with no data behind it out there.
+        target_age = min(age, model.max_fit_age)
+        predicted = tested_viability + (
+            np.clip(model.predict(target_age), 0, 100) - np.clip(model.predict(age_at_test), 0, 100)
+        )
     else:
         predicted = model.predict(age)
     predicted = np.clip(predicted, 0, 100)

@@ -35,6 +35,12 @@ class QuadraticCurve:
 
     overall_pvalue is the regression F-test p-value: "does age (linear and
     quadratic terms together) explain any of the variation in Viability."
+
+    max_fit_age is the oldest AgeAtTest actually observed in the data this
+    curve was fit on -- hierarchical.py's own-test extrapolation won't trust
+    this curve's shape past that age, since real data showed a curve's rate
+    of change extrapolated far beyond where it was ever fit can swing wildly
+    (verified: this is what produced "tested at 79%, predicted 0%" results).
     """
 
     intercept: float
@@ -43,6 +49,7 @@ class QuadraticCurve:
     n: int
     r2: float
     overall_pvalue: float
+    max_fit_age: float
 
     def predict(self, age: float) -> float:
         return self.intercept + self.linear_coef * age + self.quad_coef * age**2
@@ -78,6 +85,7 @@ class WeibullCurve:
     n: int
     r2: float
     overall_pvalue: float
+    max_fit_age: float
 
     def predict(self, age: float) -> float:
         age = max(age, 0.0)
@@ -112,6 +120,7 @@ class BreakpointCurve:
     n: int
     r2: float
     overall_pvalue: float
+    max_fit_age: float
 
     def predict(self, age: float) -> float:
         if age <= self.t0:
@@ -155,6 +164,7 @@ def _fit_quadratic(df: pd.DataFrame) -> QuadraticCurve:
         n=len(df),
         r2=fit.rsquared,
         overall_pvalue=fit.f_pvalue,
+        max_fit_age=float(df["AgeAtTest"].max()),
     )
 
 
@@ -184,6 +194,7 @@ def _fit_weibull(df: pd.DataFrame) -> WeibullCurve | None:
         v0=v0, lam=lam, k=k, n=n,
         r2=_r2(rss_full, rss_null),
         overall_pvalue=_f_test_pvalue(rss_full, rss_null, n, p_full=3),
+        max_fit_age=float(age.max()),
     )
 
 
@@ -215,6 +226,7 @@ def _fit_breakpoint(df: pd.DataFrame) -> BreakpointCurve | None:
         t0=t0, plateau=plateau, slope=slope, n=n,
         r2=_r2(rss_full, rss_null),
         overall_pvalue=_f_test_pvalue(rss_full, rss_null, n, p_full=3),
+        max_fit_age=float(age.max()),
     )
 
 

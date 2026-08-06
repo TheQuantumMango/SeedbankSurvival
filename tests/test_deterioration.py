@@ -50,7 +50,7 @@ class TestQuadratic:
         # Documenting the exact limitation the other two kinds fix -- a
         # quadratic with a positive quad_coef at old ages predicts RISING
         # viability, which real seed viability never does.
-        model = QuadraticCurve(intercept=50, linear_coef=-5, quad_coef=0.5, n=10, r2=0.9, overall_pvalue=0.01)
+        model = QuadraticCurve(intercept=50, linear_coef=-5, quad_coef=0.5, n=10, r2=0.9, overall_pvalue=0.01, max_fit_age=100.0)
         assert model.predict(20) > model.predict(10)
 
 
@@ -119,3 +119,32 @@ class TestBreakpoint:
 def test_unknown_model_kind_raises():
     with pytest.raises(ValueError):
         fit_global_model(_declining_df(), "bogus")  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("kind", ["quadratic", "weibull", "breakpoint"])
+def test_max_fit_age_matches_the_oldest_age_actually_fit_on(kind):
+    # hierarchical.py's own-test extrapolation relies on this being the true
+    # oldest AgeAtTest the curve saw, not an estimate -- it's the boundary
+    # past which the curve's shape is trusted no further.
+    df = _declining_df(n=20)
+    model = fit_global_model(df, kind)
+    assert model.max_fit_age == df["AgeAtTest"].max()
+
+
+@pytest.mark.parametrize("kind", ["quadratic", "weibull", "breakpoint"])
+def test_group_models_max_fit_age_is_per_group_not_whole_dataset(kind):
+    # A species fit only on young lots shouldn't inherit a larger
+    # max_fit_age from some OTHER species' older lots in the same df_model.
+    young = pd.DataFrame({
+        "AgeAtTest": [1.0, 3.0, 5.0, 7.0, 9.0, 10.0],
+        "Viability": [85.0, 84.0, 82.0, 80.0, 78.0, 77.0],
+        "Group": "Young",
+    })
+    old = _declining_df(n=6, seed=2)
+    old["Group"] = "Old"
+    df = pd.concat([young, old], ignore_index=True)
+
+    models = fit_group_models(df, "Group", kind)
+    assert models["Young"].max_fit_age == young["AgeAtTest"].max()
+    assert models["Old"].max_fit_age == old["AgeAtTest"].max()
+    assert models["Young"].max_fit_age < models["Old"].max_fit_age

@@ -20,10 +20,10 @@ def _df_ranking(**row):
     return pd.DataFrame([defaults])
 
 
-def _curve(intercept, linear_coef, n, r2, overall_pvalue, quad_coef=0.0):
+def _curve(intercept, linear_coef, n, r2, overall_pvalue, quad_coef=0.0, max_fit_age=100.0):
     return QuadraticCurve(
         intercept=intercept, linear_coef=linear_coef, quad_coef=quad_coef,
-        n=n, r2=r2, overall_pvalue=overall_pvalue,
+        n=n, r2=r2, overall_pvalue=overall_pvalue, max_fit_age=max_fit_age,
     )
 
 
@@ -187,3 +187,40 @@ def test_quadratic_curve_extrapolates_by_the_curves_own_change_between_ages():
     result = predict_hierarchical(row, {}, {}, global_model)
 
     assert result.loc[0, "PredictedViability_2026"] == 47.5
+
+
+def test_extrapolation_does_not_apply_curve_shape_past_its_max_fit_age():
+    # Regression test for a real, verified bug: a species-tier curve fit
+    # only up to age 4 was getting extrapolated out to age 17, producing a
+    # predicted 0% for a packet tested at a real, healthy 79% just a year
+    # earlier. Straight line, slope -1/yr, but max_fit_age=10 -- beyond that
+    # age the curve's rate is no longer trusted; held flat at its value AT
+    # max_fit_age instead of continuing to extrapolate the same rate.
+    # predict(5)=85, predict(10)=80 (the age-30 evaluation is never reached
+    # unclamped -- min(30, 10) substitutes 10 first).
+    global_model = _curve(90, -1.0, n=1000, r2=0.5, overall_pvalue=0.001, max_fit_age=10.0)
+    row = _df_ranking(SeedAge=30, Viability=70.0, AgeAtTest=5)
+
+    result = predict_hierarchical(row, {}, {}, global_model)
+
+    # 70 + (predict(10)=80 - predict(5)=85) = 70 - 5 = 65 -- NOT
+    # 70 + (predict(30)=60 - predict(5)=85) = 70 - 25 = 45, what an
+    # unclamped extrapolation would have given.
+    assert result.loc[0, "PredictedViability_2026"] == 65.0
+
+
+def test_extrapolation_clips_each_curve_evaluation_before_differencing():
+    # A curve evaluation far outside [0, 100] at ONE endpoint must not
+    # compound with the other endpoint's (possibly also out-of-range) value
+    # before the delta is taken -- each is clipped individually first.
+    # predict(age) = 300 - 26*age: predict(1)=274 (clips to 100),
+    # predict(10)=40 (already in range).
+    global_model = _curve(300, -26.0, n=1000, r2=0.5, overall_pvalue=0.001, max_fit_age=100.0)
+    row = _df_ranking(SeedAge=10, Viability=90.0, AgeAtTest=1)
+
+    result = predict_hierarchical(row, {}, {}, global_model)
+
+    # 90 + (clip(40)=40 - clip(274)=100) = 90 - 60 = 30 -- NOT
+    # 90 + (40 - 274) = 90 - 234 = -144, clipped to a misleading flat 0
+    # that would hide how the two failure modes compound.
+    assert result.loc[0, "PredictedViability_2026"] == 30.0

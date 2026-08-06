@@ -9,7 +9,7 @@ import pandas as pd
 from seedbank_survival.deterioration import QuadraticCurve
 from seedbank_survival.priority import determine_primary_reason, estimate_years_to_zero
 
-_GLOBAL = QuadraticCurve(intercept=80, linear_coef=-0.5, quad_coef=0.0, n=1000, r2=0.3, overall_pvalue=0.001)
+_GLOBAL = QuadraticCurve(intercept=80, linear_coef=-0.5, quad_coef=0.0, n=1000, r2=0.3, overall_pvalue=0.001, max_fit_age=100.0)
 
 
 def _row(**overrides):
@@ -66,7 +66,7 @@ def test_fast_deterioration_reason_compares_instantaneous_slopes_at_same_age():
     # Species curve's local slope at SeedAge=20 must beat (be steeper than)
     # 1.5x Global's local slope at that SAME age -- not compared at age 0 or
     # via some other mismatched point, now that neither is a single constant.
-    species_models = {"S1": QuadraticCurve(intercept=90, linear_coef=-1.0, quad_coef=-0.1, n=10, r2=0.9, overall_pvalue=0.01)}
+    species_models = {"S1": QuadraticCurve(intercept=90, linear_coef=-1.0, quad_coef=-0.1, n=10, r2=0.9, overall_pvalue=0.01, max_fit_age=100.0)}
     row = _row(SeedAge=20, ModelUsed="Species", PredictedViability_2026=5.0)
     reason = determine_primary_reason(row, species_models, {}, _GLOBAL)
     assert "Fast species deterioration" in reason
@@ -75,14 +75,14 @@ def test_fast_deterioration_reason_compares_instantaneous_slopes_at_same_age():
 def test_years_to_zero_uses_curves_instantaneous_slope_at_current_age():
     # predict(age) = 90 - age - 0.1*age^2 -> slope_at(20) = -1 - 0.2*20 = -5.
     # Predicted viability 25 -> 25 / 5 = 5 years remaining.
-    model = QuadraticCurve(intercept=90, linear_coef=-1.0, quad_coef=-0.1, n=10, r2=0.9, overall_pvalue=0.01)
+    model = QuadraticCurve(intercept=90, linear_coef=-1.0, quad_coef=-0.1, n=10, r2=0.9, overall_pvalue=0.01, max_fit_age=100.0)
     row = _row(SeedAge=20, ModelUsed="Species", PredictedViability_2026=25.0)
     years = estimate_years_to_zero(row, {"S1": model}, {}, _GLOBAL)
     assert years == 5.0
 
 
 def test_years_to_zero_is_infinite_when_curve_is_flat_or_rising_at_current_age():
-    model = QuadraticCurve(intercept=90, linear_coef=1.0, quad_coef=0.0, n=10, r2=0.9, overall_pvalue=0.01)
+    model = QuadraticCurve(intercept=90, linear_coef=1.0, quad_coef=0.0, n=10, r2=0.9, overall_pvalue=0.01, max_fit_age=100.0)
     row = _row(SeedAge=20, ModelUsed="Species", PredictedViability_2026=95.0)
     years = estimate_years_to_zero(row, {"S1": model}, {}, _GLOBAL)
     assert years == float("inf")

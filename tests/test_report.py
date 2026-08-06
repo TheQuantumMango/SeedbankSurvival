@@ -8,7 +8,7 @@ from seedbank_survival.report import ModelReportData, build_report
 
 
 def _curve(intercept, slope, n, r2, pvalue):
-    return QuadraticCurve(intercept=intercept, linear_coef=slope, quad_coef=0.0, n=n, r2=r2, overall_pvalue=pvalue)
+    return QuadraticCurve(intercept=intercept, linear_coef=slope, quad_coef=0.0, n=n, r2=r2, overall_pvalue=pvalue, max_fit_age=100.0)
 
 
 _COLUMNS = [
@@ -232,7 +232,7 @@ def test_build_report_includes_status_column_on_both_views(report_inputs):
 
 def test_build_report_renders_weibull_curve_payload():
     models = {"weibull": _model_data(
-        global_model=WeibullCurve(v0=90, lam=20, k=1.5, n=50, r2=0.4, overall_pvalue=0.01),
+        global_model=WeibullCurve(v0=90, lam=20, k=1.5, n=50, r2=0.4, overall_pvalue=0.01, max_fit_age=50.0),
         species_models={},
     )}
     html = build_report(models, genera=["Astragalus"], as_of_year=2026, default_model="weibull")
@@ -243,7 +243,7 @@ def test_build_report_renders_weibull_curve_payload():
 
 def test_build_report_renders_breakpoint_curve_payload():
     models = {"breakpoint": _model_data(
-        global_model=BreakpointCurve(t0=25, plateau=85, slope=-3, n=50, r2=0.4, overall_pvalue=0.01),
+        global_model=BreakpointCurve(t0=25, plateau=85, slope=-3, n=50, r2=0.4, overall_pvalue=0.01, max_fit_age=50.0),
         species_models={},
     )}
     html = build_report(models, genera=["Astragalus"], as_of_year=2026, default_model="breakpoint")
@@ -260,8 +260,8 @@ def test_build_report_quadratic_payload_tagged_with_kind(report_inputs):
 def test_build_report_embeds_all_provided_model_kinds():
     models = {
         "quadratic": _model_data(),
-        "weibull": _model_data(global_model=WeibullCurve(v0=90, lam=20, k=1.5, n=50, r2=0.1, overall_pvalue=0.5)),
-        "breakpoint": _model_data(global_model=BreakpointCurve(t0=25, plateau=85, slope=-3, n=50, r2=0.1, overall_pvalue=0.5)),
+        "weibull": _model_data(global_model=WeibullCurve(v0=90, lam=20, k=1.5, n=50, r2=0.1, overall_pvalue=0.5, max_fit_age=50.0)),
+        "breakpoint": _model_data(global_model=BreakpointCurve(t0=25, plateau=85, slope=-3, n=50, r2=0.1, overall_pvalue=0.5, max_fit_age=50.0)),
     }
     html = build_report(models, genera=["Astragalus"], as_of_year=2026, default_model="quadratic")
     assert '"kind": "quadratic"' in html
