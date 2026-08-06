@@ -13,6 +13,14 @@ end-to-end.
 
 ## Quick start
 
+Easiest: double-click **`run_report.bat`** (Windows). It runs the CLI against
+`docs/RawGRINAstragalusExport.xlsx` (+ the accessions file, if present) with
+`--genus Astragalus`, writes into `docs/output/`, and opens `report.html`
+automatically. Edit the `INVENTORY`/`ACCESSIONS`/`GENUS` lines near the top of
+the file if you're working with different data.
+
+From the command line:
+
 ```bash
 seedbank-survival --inventory RawGRINExport.xlsx --genus Astragalus
 ```
