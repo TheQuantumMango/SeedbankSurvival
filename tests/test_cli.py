@@ -25,6 +25,9 @@ def _inventory_row(**overrides):
         "Location Section 2": None,
         "Location Section 3": None,
         "Location Section 4": None,
+        "Status Note": None,
+        "Web Availability Note": None,
+        "Note": None,
     }
     row.update(overrides)
     return row

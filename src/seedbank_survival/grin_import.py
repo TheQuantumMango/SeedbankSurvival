@@ -226,6 +226,30 @@ def build_sibling_year_index(
     return index
 
 
+_LOW_GERMINATION_NOTE_COLUMNS = ["Status Note", "Web Availability Note", "Note"]
+_ASSUMED_LOW_GERMINATION_VIABILITY = 10.0
+
+
+def _needs_low_germination_imputation(df: pd.DataFrame) -> pd.Series:
+    """Status or a free-text note flags "low germination", but no Percent
+    Viable was ever recorded for it.
+
+    An accession documented this way is a real, known concern -- letting it
+    fall through to an untested row's population-curve estimate (see
+    hierarchical.py) would understate its regeneration need just because no
+    exact percentage was written down. Checked against all real Astragalus
+    "Low germination" rows: currently 0 lack a percentage (curators do
+    record one in practice for this dataset), so this has no effect on
+    output today -- it exists for the case where they don't, here or in
+    another GRIN export.
+    """
+    mentions_low_germ = pd.Series(False, index=df.index)
+    for col in _LOW_GERMINATION_NOTE_COLUMNS:
+        mentions_low_germ |= df[col].astype(str).str.contains("low germ", case=False, na=False)
+    flagged = (df["Inventory Status"] == "Low germination") | mentions_low_germ
+    return flagged & df["Percent Viable"].isna()
+
+
 def resolve_borrowed_row(
     accession: object, tested_year: int, sibling_index: dict[object, list[int]]
 ) -> int | None:
@@ -285,13 +309,25 @@ def adapt_raw_export(
         received_fallback = df["Accession"].map(received_year_lookup).astype("float64")
         seed_age_years = lot_years.where(lot_years.notna(), received_fallback)
 
+    # "Low germination" rows with no recorded percentage get a conservative
+    # assumed value instead of an untested row's population-curve estimate
+    # (see hierarchical.py's extrapolation). Anchored to the lot's own year
+    # (AgeAtTest becomes 0) -- there's no real Tested Date to anchor to when
+    # the status was recorded without a number. Zero AgeAtTest also means
+    # build_model_dataset's `AgeAtTest > 0` filter naturally excludes this
+    # assumption from ever influencing curve-fitting -- it only affects this
+    # row's own prediction, not the population model.
+    needs_imputation = _needs_low_germination_imputation(df)
+    percent_viable = df["Percent Viable"].where(~needs_imputation, _ASSUMED_LOW_GERMINATION_VIABILITY)
+    viability_year = viability_year.where(~needs_imputation, lot_years)
+
     df_primary = pd.DataFrame(
         {
             "Accession": df["Accession"].to_numpy(),
             "Suffix": df["Inventory Suffix"].to_numpy(),
             "SeedAge": (as_of_year - seed_age_years).to_numpy(),
             "AgeAtTest": (viability_year - lot_years).to_numpy(),
-            "Viability": df["Percent Viable"].to_numpy(),
+            "Viability": percent_viable.to_numpy(),
             "ViabilityYear": viability_year.to_numpy(),
             "Status": df["Inventory Status"].to_numpy(),
             "Species": df["Taxon"].to_numpy(),
@@ -300,6 +336,7 @@ def adapt_raw_export(
             "EstTotalSeed": df["Quantity On Hand"].to_numpy(),
             "MaintenanceSite": df["Inventory Maintenance Site"].to_numpy(),
             "Location": _join_location(df).to_numpy(),
+            "ViabilityAssumed": needs_imputation.to_numpy(),
         }
     )
     df_primary["SpeciesGroup"] = df_primary["Species"].apply(_species_group)

@@ -32,6 +32,9 @@ def _raw_export_row(**overrides):
         "Location Section 2": None,
         "Location Section 3": None,
         "Location Section 4": None,
+        "Status Note": None,
+        "Web Availability Note": None,
+        "Note": None,
     }
     row.update(overrides)
     return row
@@ -236,6 +239,74 @@ def test_adapt_raw_export_leaves_seed_age_nan_for_unparseable_suffix():
     row = result.df_primary.iloc[0]
     assert pd.isna(row["SeedAge"])
     assert pd.isna(row["AgeAtTest"])
+
+
+def test_adapt_raw_export_imputes_viability_for_undocumented_low_germination_status():
+    df_raw = pd.DataFrame([_raw_export_row(**{
+        "Inventory Status": "Low germination", "Percent Viable": None, "Tested Date": pd.NaT,
+        "Inventory Suffix": "10o",
+    })])
+    result = adapt_raw_export(df_raw, as_of_year=2026, genera="Astragalus")
+    row = result.df_primary.iloc[0]
+
+    assert row["Viability"] == 10.0
+    assert row["ViabilityAssumed"] == True  # noqa: E712
+    # Anchored to the lot's own year (2010) -- AgeAtTest becomes 0.
+    assert row["AgeAtTest"] == 0.0
+    assert row["ViabilityYear"] == 2010.0
+
+
+def test_adapt_raw_export_imputes_viability_when_a_note_mentions_low_germination():
+    df_raw = pd.DataFrame([_raw_export_row(**{
+        "Inventory Status": "Available", "Percent Viable": None, "Tested Date": pd.NaT,
+        "Note": "Curator observed LOW GERM this season, no formal test run.",
+    })])
+    result = adapt_raw_export(df_raw, as_of_year=2026, genera="Astragalus")
+    row = result.df_primary.iloc[0]
+
+    assert row["Viability"] == 10.0
+    assert row["ViabilityAssumed"] == True  # noqa: E712
+
+
+def test_adapt_raw_export_does_not_impute_when_a_real_percentage_exists():
+    # Real Astragalus data: every "Low germination" row already has a real
+    # Percent Viable recorded -- must not overwrite a real, if low, number.
+    df_raw = pd.DataFrame([_raw_export_row(**{
+        "Inventory Status": "Low germination", "Percent Viable": 22.0,
+        "Tested Date": pd.Timestamp("2021-10-01"),
+    })])
+    result = adapt_raw_export(df_raw, as_of_year=2026, genera="Astragalus")
+    row = result.df_primary.iloc[0]
+
+    assert row["Viability"] == 22.0
+    assert row["ViabilityAssumed"] == False  # noqa: E712
+
+
+def test_adapt_raw_export_does_not_impute_for_unrelated_status():
+    df_raw = pd.DataFrame([_raw_export_row(**{
+        "Inventory Status": "Available", "Percent Viable": None, "Tested Date": pd.NaT,
+    })])
+    result = adapt_raw_export(df_raw, as_of_year=2026, genera="Astragalus")
+    row = result.df_primary.iloc[0]
+
+    assert pd.isna(row["Viability"])
+    assert row["ViabilityAssumed"] == False  # noqa: E712
+
+
+def test_adapt_raw_export_imputed_row_is_excluded_from_model_fitting():
+    # AgeAtTest==0 fails build_model_dataset's `AgeAtTest > 0` filter -- the
+    # assumption must only affect this row's own prediction, never bias the
+    # deterioration curve fit itself.
+    from seedbank_survival.data_prep import build_model_dataset, clean_ages
+
+    df_raw = pd.DataFrame([_raw_export_row(**{
+        "Inventory Status": "Low germination", "Percent Viable": None, "Tested Date": pd.NaT,
+        "Inventory Suffix": "10o",
+    })])
+    result = adapt_raw_export(df_raw, as_of_year=2026, genera="Astragalus")
+    df_model = build_model_dataset(clean_ages(result.df_primary))
+
+    assert len(df_model) == 0
 
 
 def test_adapt_raw_export_carries_maintenance_site():
