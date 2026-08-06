@@ -1,10 +1,11 @@
 # SeedbankSurvival
 
-A seedbank viability assessment tool: fits quadratic deterioration curves
-(genus-wide and per-species, falling back to per-origin where species data is
-sparse) on GRIN-Global accession data, and produces two views of the result --
-which accessions to prioritize for regeneration, and which physical packets to
-test or discard.
+A seedbank viability assessment tool: fits deterioration curves (genus-wide
+and per-species, falling back to per-origin where species data is sparse) on
+GRIN-Global accession data, and produces two views of the result -- which
+accessions to prioritize for regeneration, and which physical packets to test
+or discard. Three curve forms are available (`--model quadratic|weibull
+|breakpoint`) -- see "Choosing a deterioration curve" below.
 
 The original analysis started as a single class-project notebook
 (`notebooks/DATA115_Final4_Charpentier.ipynb`, kept for historical reference).
@@ -51,6 +52,50 @@ Each table in `report.html` is sortable (click a header) and filterable.
 Column widths are drag-resizable (grab a header's right edge), and the
 "Columns ▾" menu toggles which columns are shown -- both independent per
 view (Accession/Inventory) and reset on reload; nothing is saved back to disk.
+
+## Choosing a deterioration curve
+
+`--model` picks the functional form fit to `Viability ~ AgeAtTest`, per
+`deterioration.py`. All three are compared with the same statistical
+machinery (R² vs. Global, `overall_pvalue` significance gate, `min_n=4`) --
+only the curve's shape differs:
+
+| | Monotonic? | Shape | Fit risk |
+|---|---|---|---|
+| `quadratic` (default) | No -- can turn back upward past its vertex | Parabola | None (closed-form OLS) |
+| `weibull` | Yes, by construction | Smooth plateau-then-decline (shape param `k`) | Nonlinear solver; rare non-convergence raises a clear error |
+| `breakpoint` | Yes, by construction (post-breakpoint slope clamped ≤0) | Flat plateau, then a straight decline | None (grid search + linear regression) |
+
+**Why this matters**: binning real Astragalus data by age shows viability
+holding roughly flat for ~40 years, then dropping sharply -- a plateau, not
+a decline from day one. A plain quadratic can fit that reasonably but has no
+constraint against predicting viability *rising* with age past its vertex --
+confirmed on real data (a few of the smallest significant groups showed this
+visually implausible shape). `weibull` and `breakpoint` both guarantee
+non-increasing predictions by construction and were checked against real
+data using the same fair (back-transformed-to-percentage) comparison used to
+originally justify the quadratic switch -- neither loses meaningfully to the
+quadratic, and `breakpoint` slightly beat it at the genus-wide level.
+
+Real-data comparison (R² on the original percentage scale, higher is
+better):
+
+| | Global (n=1341) | *A. cicer* (n=253) | *A. lonchocarpus* (n=14) | Romania (n=33) |
+|---|---|---|---|---|
+| quadratic | 0.0348 | 0.1217 | 0.5184 | 0.3789 |
+| weibull | 0.0277 | 0.1164 | 0.5184 | 0.3781 |
+| breakpoint | **0.0360** | 0.0991 | 0.5088 | 0.3662 |
+
+**Caveat on real Astragalus data, unrelated to model form**: 24.4% of
+same-accession, age-ordered test pairs have an *older* lot testing more than
+5 points *higher* in viability than a younger one -- plausibly consistent
+with stratification during storage inflating germination-test results for
+older seed (tetrazolium testing wouldn't have this confound, but the raw
+export has no field distinguishing which test method produced a given
+`Percent Viable` value, so this can't currently be filtered or verified).
+No model form fixes this -- it constrains the *fitted population curve*
+(stopping it from implying "gets more viable with age"), not the
+underlying per-lot noise, which scatters around any curve exactly as before.
 
 ## Data sources
 
@@ -211,7 +256,7 @@ divergence from it rather than just re-testing current behavior in isolation:
   percentage scale (not the transformed one, which isn't directly
   comparable) -- all of them fit *worse* than a straight line; only a
   quadratic (`Viability ~ AgeAtTest + AgeAtTest²`, now `deterioration.py`'s
-  `CurveModel`, replacing `SlopeModel`) improved on it. While comparing
+  `QuadraticCurve`, replacing `SlopeModel`) improved on it. While comparing
   forms, also found `Percent Viable == -1.0` (never any other negative
   value) is a GRIN sentinel for "no valid test," not a real -1% measurement
   -- was being fit as real data by every model, linear included. Any
@@ -238,13 +283,15 @@ divergence from it rather than just re-testing current behavior in isolation:
   current real Astragalus data (every such row there already has a real
   percentage recorded), but guards against it for this or another export.
 
-**Known limitation of the quadratic curve**: with very little data (the
-n=4 floor), a fitted parabola can take on a visually implausible shape
-outside the tight cluster of the actual points -- checked against real
-data, this does happen for a handful of the smallest significant groups.
-The significance gate still screens out non-trending ones; it doesn't
-guarantee a *plausible-shaped* one. Not fixed here -- flagged as a
-follow-up if it turns out to matter in practice.
+- **Quadratic curves can predict viability rising with age** -- confirmed on
+  real data (a visually implausible shape for a handful of the smallest
+  significant groups, e.g. a fitted parabola turning back upward past its
+  vertex). No amount of tuning `min_n` or the significance gate fixes this;
+  it's a property of the curve *form*, not the fitting. Added `weibull` and
+  `breakpoint` (see "Choosing a deterioration curve" above) as alternative,
+  selectable `--model` forms that guarantee non-increasing predictions by
+  construction; `quadratic` stays the default since it isn't always the
+  worse fit and a curator may want to compare.
 - **Ignoring an inventory's own test result** -- `PredictedViability_2026`
   was always computed from a tier's fitted intercept (the *population*
   average starting point), even for a packet with its own real measured
