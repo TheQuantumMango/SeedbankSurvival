@@ -7,7 +7,7 @@ from seedbank_survival.deterioration import SlopeModel
 from seedbank_survival.report import build_report
 
 _COLUMNS = [
-    "Accession", "Suffix", "Species", "Origin", "SeedAge", "PrimaryReason",
+    "Accession", "Suffix", "Status", "Species", "Origin", "SeedAge", "PrimaryReason",
     "EstimatedViability_2026", "YearsRemainingTo0%", "ModelUsed", "ModelConfidence",
 ]
 
@@ -16,6 +16,7 @@ def _table_row(**overrides):
     row = {
         "Accession": "PI 1",
         "Suffix": "37o",
+        "Status": "Available",
         "Species": "Astragalus cicer",
         "Origin": "Turkey",
         "SeedAge": 20,
@@ -155,3 +156,13 @@ def test_build_report_respects_chart_cap(report_inputs):
     inputs["top_n_charts"] = 3
     html = build_report(**inputs)
     assert html.count('"title":') == 4  # global + 3 capped species charts
+
+
+def test_build_report_includes_status_column_on_both_views(report_inputs):
+    inputs = dict(report_inputs)
+    inputs["accession_table"] = pd.DataFrame([_table_row(Status="Backup germplasm")])[_COLUMNS]
+    inputs["inventory_table"] = pd.DataFrame([_table_row(Status="Exhausted supply")])[_COLUMNS]
+    html = build_report(**inputs)
+    assert '"Status"' in html
+    assert "Backup germplasm" in html
+    assert "Exhausted supply" in html

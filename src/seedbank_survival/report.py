@@ -17,6 +17,7 @@ from .deterioration import SlopeModel
 _TABLE_COLUMNS = [
     ("Accession", "Accession"),
     ("Suffix", "Suffix"),
+    ("Status", "Status"),
     ("Species", "Species"),
     ("Origin", "Origin"),
     ("SeedAge", "Seed age"),
@@ -295,7 +296,7 @@ svg.chart { display: block; width: 100%; height: auto; overflow: visible; }
       <p class="sub">One row per accession -- the best-representative packet, for deciding what to regenerate.</p>
       <p class="sort-note">Sorted by regeneration urgency: highest need (lowest predicted viability) first.</p>
       <div class="controls">
-        <input class="filter-input" type="text" placeholder="Filter by accession, species, origin, reason..." data-filter-for="accessionTable">
+        <input class="filter-input" type="text" placeholder="Filter by accession, status, species, origin, reason..." data-filter-for="accessionTable">
       </div>
       <div class="controls">
         <fieldset class="radio-group" aria-label="Viability filter">
@@ -313,7 +314,7 @@ svg.chart { display: block; width: 100%; height: auto; overflow: visible; }
       <p class="sub">Every physical packet with seed on hand, dead or alive -- for deciding what to test or discard.</p>
       <p class="sort-note">Sorted by urgency: lowest predicted viability packets first.</p>
       <div class="controls">
-        <input class="filter-input" type="text" placeholder="Filter by accession, species, origin, reason..." data-filter-for="inventoryTable">
+        <input class="filter-input" type="text" placeholder="Filter by accession, status, species, origin, reason..." data-filter-for="inventoryTable">
       </div>
       <div class="controls">
         <fieldset class="radio-group" aria-label="Viability filter">
@@ -394,7 +395,7 @@ function applyFilters() {
     let filtered = source;
     if (query) {
       filtered = filtered.filter(row =>
-        ["Accession", "Species", "Origin", "PrimaryReason"].some(k =>
+        ["Accession", "Status", "Species", "Origin", "PrimaryReason"].some(k =>
           String(row[k] || "").toLowerCase().includes(query)
         )
       );
