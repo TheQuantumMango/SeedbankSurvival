@@ -91,6 +91,17 @@ def determine_primary_reason(
         if slope < global_model.slope * 1.5:
             reasons.append("Fast origin deterioration")
 
+    # Distinguish a directly-observed result from a purely modeled one --
+    # matters for triage credibility either way: an assumed value (see
+    # grin_import.py's low-germination imputation, for a documented concern
+    # with no recorded percentage) shouldn't read as equally certain as a
+    # real lab measurement, and a real low measurement deserves to stand out
+    # from a merely-predicted one.
+    if row.get("ViabilityAssumed", False):
+        reasons.append("Assumed low germination, no test data")
+    elif pd.notna(row.get("Viability")) and pd.notna(row.get("AgeAtTest")) and row["Viability"] <= 30:
+        reasons.append("Tested at low viability")
+
     if row["PredictedViability_2026"] <= 10:
         reasons.append("Critical viability")
     elif row["PredictedViability_2026"] <= 30:

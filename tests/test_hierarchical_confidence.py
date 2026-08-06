@@ -92,3 +92,63 @@ def test_nan_slope_pvalue_defers_to_global_even_with_higher_r2():
     result = predict_hierarchical(_df_ranking(), species_models, {}, global_model)
 
     assert result.loc[0, "ModelUsed"] == "Global"
+
+
+def test_extrapolates_from_own_test_result_instead_of_population_intercept():
+    # This packet's own test (70% at AgeAtTest=5) is the ground truth for
+    # itself -- prediction should extrapolate from THAT, not from the tier's
+    # fitted intercept (90, the *population* average at age 0), which this
+    # specific packet may be nowhere near.
+    global_model = SlopeModel(intercept=90, slope=-2.0, n=1000, r2=0.5, slope_pvalue=0.001)
+    row = _df_ranking(SeedAge=15, Viability=70.0, AgeAtTest=5)
+
+    result = predict_hierarchical(row, {}, {}, global_model)
+
+    # 70% at age 5, extrapolated 10 more years (age 15) at -2%/yr = 70 - 20 = 50.
+    assert result.loc[0, "PredictedViability_2026"] == 50.0
+
+
+def test_falls_back_to_curve_when_row_has_no_own_test_result():
+    # No Viability/AgeAtTest columns at all -- must still use the
+    # intercept-based curve exactly as before this feature existed.
+    global_model = SlopeModel(intercept=90, slope=-2.0, n=1000, r2=0.5, slope_pvalue=0.001)
+    row = _df_ranking(SeedAge=15)
+
+    result = predict_hierarchical(row, {}, {}, global_model)
+
+    assert result.loc[0, "PredictedViability_2026"] == 90 - 2.0 * 15
+
+
+def test_falls_back_to_curve_when_own_test_result_is_nan():
+    # Viability/AgeAtTest columns exist (as they do for every real
+    # raw-GRIN-derived row) but are NaN for this particular untested packet.
+    global_model = SlopeModel(intercept=90, slope=-2.0, n=1000, r2=0.5, slope_pvalue=0.001)
+    row = _df_ranking(SeedAge=15, Viability=float("nan"), AgeAtTest=float("nan"))
+
+    result = predict_hierarchical(row, {}, {}, global_model)
+
+    assert result.loc[0, "PredictedViability_2026"] == 90 - 2.0 * 15
+
+
+def test_extrapolation_uses_the_selected_tiers_slope_not_globals():
+    # The tier selected by the existing confidence override still governs
+    # the RATE of decline used for extrapolation -- only the starting point
+    # (population intercept vs. this packet's own test) changes.
+    species_models = {"S1": SlopeModel(intercept=90, slope=-3.0, n=10, r2=0.9, slope_pvalue=0.01)}
+    global_model = SlopeModel(intercept=80, slope=-0.5, n=1000, r2=0.3, slope_pvalue=0.001)
+    row = _df_ranking(SeedAge=12, Viability=60.0, AgeAtTest=10)
+
+    result = predict_hierarchical(row, species_models, {}, global_model)
+
+    assert result.loc[0, "ModelUsed"] == "Species"
+    # 60% at age 10, extrapolated 2 more years at Species's -3%/yr = 60 - 6 = 54.
+    assert result.loc[0, "PredictedViability_2026"] == 54.0
+
+
+def test_extrapolated_prediction_still_clipped_to_valid_range():
+    global_model = SlopeModel(intercept=90, slope=-10.0, n=1000, r2=0.5, slope_pvalue=0.001)
+    row = _df_ranking(SeedAge=50, Viability=20.0, AgeAtTest=5)
+
+    result = predict_hierarchical(row, {}, {}, global_model)
+
+    assert result.loc[0, "PredictedViability_2026"] == 0

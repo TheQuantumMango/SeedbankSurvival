@@ -41,7 +41,19 @@ def _predict_row(
     ):
         model, model_used = global_model, "Global"
 
-    predicted = model.intercept + (model.slope * age)
+    tested_viability = row.get("Viability")
+    age_at_test = row.get("AgeAtTest")
+    if pd.notna(tested_viability) and pd.notna(age_at_test):
+        # This specific inventory has its own observed test result (real, or
+        # a documented assumption -- see grin_import.py's low-germination
+        # imputation) -- anchor to that and extrapolate forward with the
+        # selected tier's rate of decline, instead of the tier's
+        # population-average starting point (its fitted intercept). More
+        # accurate for this individual packet than treating it as "average
+        # for its tier," and the reason a test result exists at all.
+        predicted = tested_viability + model.slope * (age - age_at_test)
+    else:
+        predicted = model.intercept + (model.slope * age)
     predicted = np.clip(predicted, 0, 100)
 
     return pd.Series([predicted, model_used, model.r2])
@@ -56,9 +68,14 @@ def predict_hierarchical(
     """Predict current viability per accession.
 
     Falls back Species -> Origin -> Global by data availability, then uses
-    Global instead whenever its R^2 beats the tier that fallback picked --
-    a tier fit on very little data can look "specific" while actually
-    explaining the deterioration worse than the genus-wide curve.
+    Global instead whenever its R^2 beats the tier that fallback picked (and
+    the tier's slope is statistically significant) -- a tier fit on very
+    little data can look "specific" while actually explaining the
+    deterioration worse than the genus-wide curve, or looking confident by
+    chance. Whichever tier is selected, a row with its own observed
+    Viability/AgeAtTest extrapolates from that specific measurement using
+    the tier's slope, rather than from the tier's population-average
+    starting point -- see _predict_row.
     """
     df_ranking = df_ranking.copy()
     df_ranking[["PredictedViability_2026", "ModelUsed", "ModelConfidence"]] = df_ranking.apply(
