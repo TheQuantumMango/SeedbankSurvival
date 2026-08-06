@@ -81,10 +81,19 @@ def infer_original_vs_increase(rows: list[tuple[str, int | None, str | None]]) -
     Returns inferred letters in the same order as `rows`, one per row:
     the original (possibly still-None) letter is returned unchanged for
     rows that already had one.
+
+    `year` arrives as a numpy float64 (from a pandas Series upstream, which
+    silently turns a missing Python `None` into `float('nan')`) as often as
+    it arrives as a real Python `None` -- `nan is None` is False, so every
+    check here uses pd.isna() rather than `is None`. Getting this wrong
+    doesn't crash; it silently mislabels every unresolvable-suffix row as
+    "i" (increase), since `nan is not None` is True and `nan == anything`
+    is always False, so such a row always fails the "is this the accession's
+    minimum year" check and falls through to the increase branch.
     """
     min_year_by_accession: dict[str, int] = {}
     for accession, year, _letter in rows:
-        if year is None:
+        if pd.isna(year):
             continue
         current = min_year_by_accession.get(accession)
         if current is None or year < current:
@@ -94,9 +103,9 @@ def infer_original_vs_increase(rows: list[tuple[str, int | None, str | None]]) -
     for accession, year, letter in rows:
         if letter is not None:
             inferred.append(letter)
-        elif year is not None and year == min_year_by_accession.get(accession):
+        elif not pd.isna(year) and year == min_year_by_accession.get(accession):
             inferred.append("o")
-        elif year is not None:
+        elif not pd.isna(year):
             inferred.append("i")
         else:
             inferred.append(None)

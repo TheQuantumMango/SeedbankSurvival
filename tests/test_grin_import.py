@@ -106,6 +106,30 @@ def test_infer_original_vs_increase_leaves_unknown_year_alone():
     assert infer_original_vs_increase(rows) == [None]
 
 
+def test_infer_original_vs_increase_leaves_nan_year_alone():
+    # Regression test: adapt_raw_export actually builds `rows` by zipping a
+    # pandas float64 Series, which silently turns a missing year into
+    # float('nan'), not Python None. `nan is None` is False, so a naive
+    # `is None` check here would let a NaN-year row fall through to being
+    # mislabeled "i" (increase) instead of staying unknown -- this is exactly
+    # what happened with real NSSL-backup-lot rows (Suffix "1"/"2"), which
+    # have no parseable year at all.
+    rows = [("PI 4", float("nan"), None)]
+    assert infer_original_vs_increase(rows) == [None]
+
+
+def test_infer_original_vs_increase_nan_year_does_not_corrupt_accession_minimum():
+    # A NaN-year row must not participate in "which row is this accession's
+    # earliest" at all -- it should neither become the minimum itself nor
+    # prevent a real year from being recognized as the minimum.
+    rows = [
+        ("PI 5", float("nan"), None),
+        ("PI 5", 1995, None),
+        ("PI 5", 2001, None),
+    ]
+    assert infer_original_vs_increase(rows) == [None, "o", "i"]
+
+
 def test_filter_to_genus_keeps_only_matching_taxon():
     df = pd.DataFrame({
         "Taxon": ["Astragalus cicer", "Elymus elymoides", "Astragalus spp.", "Poa secunda"],
