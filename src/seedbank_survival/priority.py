@@ -43,6 +43,11 @@ _OUTPUT_COLUMN_NAMES = [
 # rather than required, to keep that path usable.
 _LOCATION_COLUMNS = ("MaintenanceSite", "Location")
 
+# Beyond this, a computed years-to-zero stops being a meaningful distinction
+# for a seed bank's realistic planning horizon (decades, not centuries) --
+# see estimate_years_to_zero.
+_YEARS_TO_ZERO_CAP = 200.0
+
 
 def _model_for_row(
     row: pd.Series,
@@ -72,15 +77,35 @@ def estimate_years_to_zero(
     roots, or curve back upward -- not a meaningful "years remaining" for a
     curator's near-term planning). Reduces to the exact previous calculation
     when the curve is a straight line (slope_at is then constant everywhere).
+
+    slope >= 0 normally means "not currently declining," correctly inf. But
+    a small-n quadratic can have a locally positive slope_at() PAST its
+    vertex -- even a barely-positive one -- while the row's own (separately
+    bounded, see hierarchical.py) PredictedViability_2026 already sits at
+    the floor -- verified against real data (2 accessions predicted ~0.2%
+    and ~1.0% showed inf/blank years-to-zero, contradicting their own
+    "Critical viability" tag). Report 0 in that specific case rather than
+    trust a local slope reading the row's own prediction has already
+    effectively contradicted; every other slope>=0 case (viability
+    genuinely not near the floor) is untouched.
     """
     viability = row["PredictedViability_2026"]
     model = _model_for_row(row, species_models, origin_models, global_model)
     slope = model.slope_at(row["SeedAge"])
 
     if slope >= 0:
-        return np.inf
+        return 0.0 if viability <= 2.0 else np.inf
 
     years_remaining = viability / abs(slope)
+    if years_remaining > _YEARS_TO_ZERO_CAP:
+        # A near-flat (but technically negative) local slope near a weak
+        # curve's vertex -- verified against real data, one Global-tier row
+        # (r2=0.035) computed a literal 111,377.7 -- is mathematically
+        # "correct" but not a meaningful distinction from "not currently
+        # declining" for a curator's planning horizon, and the false
+        # precision (one decimal place on a 6-figure number) reads as a
+        # glitch rather than a real estimate. Reported the same as inf.
+        return np.inf
     return max(0, years_remaining)
 
 

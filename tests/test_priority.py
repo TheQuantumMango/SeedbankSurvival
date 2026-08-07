@@ -86,3 +86,40 @@ def test_years_to_zero_is_infinite_when_curve_is_flat_or_rising_at_current_age()
     row = _row(SeedAge=20, ModelUsed="Species", PredictedViability_2026=95.0)
     years = estimate_years_to_zero(row, {"S1": model}, {}, _GLOBAL)
     assert years == float("inf")
+
+
+def test_years_to_zero_is_zero_not_infinite_when_already_near_the_floor():
+    # Regression test for a real inconsistency: a small-n quadratic can have
+    # a locally positive slope_at() PAST its vertex (predict() rises again
+    # after bottoming out) even while the row's own separately-bounded
+    # PredictedViability_2026 is already ~0% -- verified on real data, two
+    # "Critical viability" accessions showed a contradictory blank/infinite
+    # years-to-zero. A near-zero prediction with a non-declining local slope
+    # means "already there," not "stable forever."
+    model = QuadraticCurve(intercept=90, linear_coef=1.0, quad_coef=0.0, n=10, r2=0.9, overall_pvalue=0.01, max_fit_age=100.0)
+    row = _row(SeedAge=20, ModelUsed="Species", PredictedViability_2026=0.2)
+    years = estimate_years_to_zero(row, {"S1": model}, {}, _GLOBAL)
+    assert years == 0.0
+
+
+def test_years_to_zero_caps_implausibly_large_estimates_to_infinite():
+    # Regression test for a real outlier: a near-flat (but technically
+    # negative) local slope near a weak curve's vertex computed a literal
+    # 111,377.7 years-to-zero on real data -- mathematically consistent with
+    # the formula, but not a meaningful distinction from "not currently
+    # declining," and the false one-decimal precision on a 6-figure number
+    # reads as a glitch. slope=-0.001/yr, viability=95 -> raw calculation
+    # would be 95000 years, capped to inf instead.
+    model = QuadraticCurve(intercept=95, linear_coef=-0.001, quad_coef=0.0, n=1000, r2=0.03, overall_pvalue=0.001, max_fit_age=100.0)
+    row = _row(SeedAge=20, ModelUsed="Species", PredictedViability_2026=95.0)
+    years = estimate_years_to_zero(row, {"S1": model}, {}, _GLOBAL)
+    assert years == float("inf")
+
+
+def test_years_to_zero_below_cap_is_reported_normally():
+    # A genuinely meaningful decades-scale estimate must NOT get swept into
+    # the same cap -- only implausibly large ones.
+    model = QuadraticCurve(intercept=90, linear_coef=-1.0, quad_coef=0.0, n=1000, r2=0.3, overall_pvalue=0.001, max_fit_age=100.0)
+    row = _row(SeedAge=20, ModelUsed="Species", PredictedViability_2026=90.0)
+    years = estimate_years_to_zero(row, {"S1": model}, {}, _GLOBAL)
+    assert years == 90.0
