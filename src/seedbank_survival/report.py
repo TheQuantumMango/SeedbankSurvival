@@ -136,6 +136,27 @@ class ModelReportData:
     global_model: Curve
 
 
+def _records_with_nan_as_none(df: pd.DataFrame) -> list[dict]:
+    """DataFrame -> list-of-dicts with every NaN replaced by None first.
+
+    json.dumps never routes a raw float('nan') through a `default=`
+    callback -- floats are handled by the encoder's own internals before
+    `default` is ever considered, so a plain `.to_dict("records")` here
+    would silently embed the bare (invalid-JSON, but Python emits it
+    anyway) token `NaN` in the page. A <script> tag isn't parsed as JSON --
+    it's evaluated as a JS expression -- so that token doesn't error, it
+    becomes the real JS value NaN. That breaks both display (a table cell
+    renders the literal text "NaN" instead of blank) and sorting (NaN - x
+    is NaN, and Array.sort's behavior for a NaN-returning comparator is
+    unspecified) whenever a numeric column -- YearsRemainingTo0% is the
+    real example -- has a missing value. astype(object) preserves each
+    cell's own Python type (float stays float, str stays str); only the
+    NaN cells become None, which DOES serialize as JSON null like every
+    other None in this payload.
+    """
+    return df.astype(object).where(df.notna(), None).to_dict("records")
+
+
 def _build_model_payload(
     data: ModelReportData, top_n_charts: int, species_group_col: str, row_columns: list[str]
 ) -> dict:
@@ -144,8 +165,8 @@ def _build_model_payload(
         data.df_model, data.species_models, data.global_model, charted_species, species_group_col
     )
     return {
-        "accessionRows": data.accession_table[row_columns].to_dict("records"),
-        "inventoryRows": data.inventory_table[row_columns].to_dict("records"),
+        "accessionRows": _records_with_nan_as_none(data.accession_table[row_columns]),
+        "inventoryRows": _records_with_nan_as_none(data.inventory_table[row_columns]),
         "charts": charts,
         "globalR2": round(data.global_model.r2, 2),
         "globalN": data.global_model.n,
@@ -509,6 +530,22 @@ function renderTable(tableId, rows, columns) {
     return columns.filter(([key]) => !hiddenCols.has(key));
   }
 
+  // Shared by the header-click handler and setRows, so a sort chosen by
+  // clicking a column survives a subsequent filter/model change instead of
+  // silently reverting to source order while the header's arrow keeps
+  // claiming the (no longer true) sort is still in effect.
+  function applySort(data) {
+    if (!sortCol) return data;
+    const key = sortCol;
+    return data.slice().sort((a, b) => {
+      const av = a[key], bv = b[key];
+      if (av === null || av === undefined) return 1;
+      if (bv === null || bv === undefined) return -1;
+      if (typeof av === "number" && typeof bv === "number") return (av - bv) * sortDir;
+      return String(av).localeCompare(String(bv)) * sortDir;
+    });
+  }
+
   function startResize(e, key, th) {
     e.preventDefault();
     e.stopPropagation();
@@ -558,13 +595,7 @@ function renderTable(tableId, rows, columns) {
         const key = label.dataset.key;
         sortDir = (sortCol === key) ? -sortDir : 1;
         sortCol = key;
-        state.rows = state.rows.slice().sort((a, b) => {
-          const av = a[key], bv = b[key];
-          if (av === null || av === undefined) return 1;
-          if (bv === null || bv === undefined) return -1;
-          if (typeof av === "number" && typeof bv === "number") return (av - bv) * sortDir;
-          return String(av).localeCompare(String(bv)) * sortDir;
-        });
+        state.rows = applySort(state.rows);
         draw(state.rows);
       });
     });
@@ -585,7 +616,7 @@ function renderTable(tableId, rows, columns) {
   const state = { rows: rows };
   draw(state.rows);
   return {
-    setRows(newRows) { state.rows = newRows; draw(state.rows); },
+    setRows(newRows) { state.rows = applySort(newRows); draw(state.rows); },
     buildColumnMenu(menuEl) {
       menuEl.innerHTML = columns.map(([key, label]) =>
         `<label><input type="checkbox" data-key="${key}" ${hiddenCols.has(key) ? "" : "checked"}> ${label}</label>`

@@ -295,3 +295,43 @@ def test_build_report_row_counts_are_shared_not_per_model(report_inputs):
     counts_segment = html.split('"counts"')[1].split("}")[0]
     assert '"accession": 1' in counts_segment
     assert '"inventory": 2' in counts_segment
+
+
+def test_build_report_serializes_nan_as_json_null_not_a_bare_nan_token():
+    # Regression test for a real bug: json.dumps never routes a raw
+    # float('nan') through `default=` (floats are handled by the encoder's
+    # own internals first), so a plain .to_dict("records") embedded the
+    # literal (invalid-JSON) token `NaN` in the page. A <script> tag isn't
+    # parsed as JSON -- it's evaluated as JS -- so that token silently
+    # became the real JS value NaN instead of erroring, which rendered as
+    # the literal text "NaN" in a table cell and broke that column's sort
+    # (NaN - x is NaN; Array.sort's behavior for a NaN comparator result is
+    # unspecified). YearsRemainingTo0% is nan whenever the curve's slope
+    # isn't negative (see priority.py) -- exactly the real case that
+    # surfaced this.
+    inputs = {
+        "models": {"quadratic": _model_data(
+            accession_rows=[_table_row(**{"YearsRemainingTo0%": float("nan")})],
+        )},
+        "genera": ["Astragalus"],
+        "as_of_year": 2026,
+        "default_model": "quadratic",
+    }
+    html = build_report(**inputs)
+    assert '"YearsRemainingTo0%": null' in html
+    assert ": NaN" not in html
+
+
+def test_build_report_sort_persists_through_setrows_not_just_header_click(report_inputs):
+    # Regression test for a real bug: clicking a column to sort worked, but
+    # any subsequent filter/model change called setRows(newRows) with the
+    # sort never reapplied, silently reverting the displayed order to
+    # source order while the header's arrow kept claiming it was still
+    # sorted. applySort() is now the single shared implementation used by
+    # both the header-click handler and setRows, so a sort can't be lost
+    # this way -- can't run the JS itself here, but confirm the fix (one
+    # shared function, not two independent sort call sites) actually shipped.
+    html = build_report(**report_inputs)
+    assert "function applySort(" in html
+    assert "state.rows = applySort(state.rows)" in html
+    assert "setRows(newRows) { state.rows = applySort(newRows)" in html
