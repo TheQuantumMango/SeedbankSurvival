@@ -300,6 +300,41 @@ divergence from it rather than just re-testing current behavior in isolation:
   rather than continuing to extrapolate a rate past where it was validated.
   Also visibly tightened agreement between model kinds at the top of the
   list: quadratic-vs-weibull top-10 overlap rose from 17.6% to 81.8% Jaccard.
+- **Years-to-zero contradicting its own row's "Critical viability" tag, or
+  showing implausible precision** -- two related `estimate_years_to_zero`
+  fixes, found auditing for logic bugs after the extrapolation fix above. A
+  small-n quadratic can have a locally *positive* slope_at() past its
+  vertex even while the row's own (separately bounded) prediction is
+  already ~0% -- two real "Critical viability" accessions showed a
+  contradictory blank/infinite years-to-zero; now reported as 0 specifically
+  when slope>=0 *and* viability is already ≤2%, leaving every other
+  slope>=0 case (genuinely not near the floor) untouched. Separately, a
+  near-flat-but-technically-negative slope near a weak curve's vertex
+  computed a literal 111,377.7 on real data -- mathematically consistent
+  with the formula but not a meaningful distinction from "not currently
+  declining," so anything over 200 years is now reported as infinite too.
+- **Report table sort silently lost on any filter/model change** -- clicking
+  a column to sort worked, but the header's arrow was the only thing that
+  remembered it: any subsequent filter, radio, or model change called
+  `setRows()` with the sort never reapplied, reverting the displayed order
+  to source (priority) order while the arrow kept claiming it was still
+  sorted by that column. Fixed by making `applySort()` the single shared
+  implementation both the header-click handler and `setRows` use, instead
+  of two independent call sites where only one remembered.
+- **NaN silently becoming the literal text "NaN" in a table cell, and
+  breaking that column's sort** -- `json.dumps` never routes a raw
+  `float('nan')` through a `default=` callback (floats are handled by the
+  encoder's own internals first), so a plain `.to_dict("records")` embedded
+  the bare, invalid-JSON token `NaN` in the page. A `<script>` tag isn't
+  parsed as JSON, though -- it's evaluated as JS -- so that token didn't
+  error, it silently became the real JS value `NaN`. That rendered as the
+  literal text "NaN" in a cell (e.g. `YearsRemainingTo0%` whenever a curve's
+  slope isn't negative) instead of blank, and broke sorting on that column
+  (`NaN - x` is `NaN`; `Array.sort`'s behavior for a NaN-returning
+  comparator is unspecified). Every row payload now goes through
+  `df.astype(object).where(df.notna(), None)` before `.to_dict()`, so NaN
+  becomes `None` first and serializes as real JSON `null` like everything
+  else in the payload.
 - **"Low germination" with no recorded percentage** -- a Status (or
   free-text note) documenting a known concern like this shouldn't quietly
   fall back to the tier's average-case curve just because no exact number
